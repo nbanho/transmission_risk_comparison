@@ -7,7 +7,7 @@ options(scipen = 999) #damit Zahlen in Dezimalschreibweise angezeigt werden
 #Assumptions
 ##f_bar
 C_a <- 0.038 # Annahme aus Rudnick (Verteilung brauchen?)
-C_out <- 325 # (Verteilung brauchen)? MW https://www.kane.co.uk/knowledge-centre/what-are-safe-levels-of-co-and-co2-in-rooms
+C_out <- 325 #p.p.m (Verteilung brauchen)? MW https://www.kane.co.uk/knowledge-centre/what-are-safe-levels-of-co-and-co2-in-rooms
 
 ##f Wert hinzufügen, durch 1mio teilen, um p.p.m wegzurechnen (vergleiche mit Rechnung in Rudnick Ende 238)
 ch1 <- ch %>% 
@@ -45,29 +45,29 @@ distribution_f_compare
 
 q <- (1.25*130+8.2*117+12.5+0.89*571+138*17)/(130+117+1+571+138)
 
+ch1 %>% count(school, n) #check welche klassen wieviele Schüler
+
 class_school1 <- (14*732 + 24*1954)/(732+1954) #gewichtetes Mittel der Klassengrösse (simpler approach)
 class_school2 <- 20
-class_school_sa <- 30
-class_school_tz <- 50
+class_school_sa <- 30 #Powerpoint
+class_school_tz <- 50 #Powerpoint
 
-prev_y_ch <- 0.006 # Prävalenzannahme Powerpoint in Dezimalschreibweise
+prev_y_ch <- 0.006 # Prävalenzannahme Powerpoint in Prozent
 prev_y_sa <- 0.7 # Prävalenzannahme Powerpoint oder 0.00432 wenn wir nur die relevante Altersgruppe beachten https://www.thelancet.com/action/showPdf?pii=S1473-3099%2822%2900149-9
 prev_y_tan <- 0.4 # Prävalenzannahme Powerpoint
 
 I_ch_1_y <- prev_y_ch/100*class_school1 #Prävalenz pro Klasse (jährlich)
 I_ch_2_y <- prev_y_ch/100*class_school2
 I_sa_y <- prev_y_sa/100*class_school_sa
-I_tz <- #Daten fehlen
+I_tz  #Daten fehlen
 
 I_ch_1_s <- I_ch_1_y/360/24 #Prävalenz pro Klasse (stündlich)
 I_ch_2_s <- I_ch_2_y/360/24
 I_sa_s <- I_sa_y/360/24
-I_tz <- #Daten fehlen
+I_tz  #Daten fehlen
 
 t = 8 #ein Tag (8 Stunden)
 t_y = 1600 #ein Jahr in Stunden 8*5*40
-
-ch1 %>% count(school, n) #check welche klassen wieviele Schüler
 
 ## P_Wert für fixen q Wert {jährliches Ansteckungsrisiko}
 P_1 = 1 - exp(-(f_bar_ch[1,2, drop=TRUE]*I_ch_1_s*q*t_y)/class_school1)
@@ -117,5 +117,5 @@ plot_sim_boxplot_year
 # Tanzania Daten?
 # über welchen Zeitraum? Wie definiere ich t?
 # Wollen wir Ansteckungsrisiko vergleichen für gleichgrosse Klassen oder Unterschiede in den Klassengrössen beibehalten?
-# Für Co2 Verteilung annehmen? Rechne momentan für jeden Wert den f-Wert aus und damit dan f_bar
+# Für Co2 Verteilung annehmen? Rechne momentan für jeden Wert den f-Wert aus und damit dann f_bar
 # q Wert von Andrews in PP [3.3] (finde dieses Paper nicht)

@@ -6,7 +6,7 @@ library(tidyverse)
 
 satz <- read_dta("data-raw/co2-sa-tz.dta") %>%
   filter(location == "Your school",
-         grepl("class", tolower(other_location))) %>%
+         grepl("class", tolower(other_location)) | other_location == "") %>%
   mutate(country = ifelse(country == 0, "South Africa", "Tanzania"),
          date = as.character(date),
          date = as.POSIXct(date, format = "%Y/%m/%d %H:%M:%S")) %>%

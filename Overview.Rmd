@@ -415,7 +415,7 @@ q_sample_total_unif <- c(q_inf_persons, runif(117-length(q_inf_persons), min = 0
 sd <- sd(q_sample_total_unif)
 
 dq <- function(x) {
-  dtrunc(x, spec = "st", a = 0, b = 300, mu = q, sigma = 1, nu = 1)
+  dtrunc(x, spec = "st", a = 0, b = 300, mu = q, sigma = sd, nu = 1)
 } #function using parameters from option 1
 
 rq_distr <- data.frame(quanta = seq(0, 200, .1)) %>% 

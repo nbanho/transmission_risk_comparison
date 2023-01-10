@@ -19,16 +19,9 @@ saveRDS(satz, "data-clean/co2-sa-tz.rds")
 #### CH ####
 
 ch <- read_csv("data-raw/co2-ch.csv") %>%
-  filter(!no_school,
-         !no_class,
-         intervention == "No intervention") %>%
-  mutate(country = "Switzerland") %>%
-  mutate(n = ifelse(class == "Study (B)", 14,
-                    ifelse(class == "Study (A)", 24,
-                           ifelse(school == "School 1", 14, 
-                                  ifelse(school == "School 2" & class == "Study", 20, 18))))) %>%
   rename(co2 = co2ppm) %>%
-  select(country, school, class, date, time, co2, n)
+  mutate(country = "Switzerland") %>%
+  select(country, school, date, time, co2, n)
 
 
 saveRDS(ch, "data-clean/co2-ch.rds")

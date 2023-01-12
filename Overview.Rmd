@@ -8,7 +8,13 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+options(scipen = 999)
+```
+
+## Libraries 
+
+```{r libraries}
 library(tidyverse)
 library(ggplot2)
 require("knitr")
@@ -22,24 +28,32 @@ library(crch)
 library(stats)
 library(LaplacesDemon)
 library(ggstatsplot)
-ch <- readRDS("data-clean/co2-ch.rds")
-satz <- readRDS("data-clean/co2-sa-tz.rds")
-options(scipen = 999)
+library(MASS)
 ```
 
-## Assumptions and parameter estimations
+## Data 
 
-We use Rudnick's revised Wells-Riley equation to estimate the transmission risk for tuberculosis. There are different parameter which have to be estimated from data or from the literature. The equation used is described in the paper from Rudnick on page 238 and 239. 
+```{r data import}
+ch <- readRDS("data-clean/co2-ch.rds") #swiss data
+satz <- readRDS("data-clean/co2-sa-tz.rds")
 
-The risk of infection can be computed as follows:
+ch <- ch %>% 
+  filter(co2 > 400)
 
-$P = exp(-\frac{\bar{f}*I*q*t}{n})$ $(1)$
+sa <- satz %>% 
+  filter(country == "South Africa") %>% 
+  filter(co2 < 3000) %>% 
+  filter(co2 > 400) #south africa data
 
-The following parameters/helpfunctions are used:
+tz <- satz %>% 
+  filter(country == "Tanzania") %>% 
+  filter(co2 < 3000) %>%
+  filter(co2 > 400) #tanzania data
+```
 
-$f = \frac{C-C_o}{C_a}$ $(2)$
+## Methods
 
-* $C:=$ Indoor Co2 concentration<br>
+Indoor Co2 concentration<br>
   * mean or distribution from data<br>
 * $C_o:=$ Outdoor Co2 concentration<br>
   * from literature https://www.fsis.usda.gov/sites/default/files/media_file/2020-08/Carbon-Dioxide.pdf
@@ -56,354 +70,232 @@ $f = \frac{C-C_o}{C_a}$ $(2)$
 * $n:=$ number of people in the class
   * data (Switzerland) or assumption (South Africa, Tanzania)
 
-Calculate the f-values per time:
+## Preprocess
 
-```{r calculating f}
-C_a <- (0.0048+0.0041)/2 #using M=1.4 in table 3  (mean of "Sitting reading, writing, typing" and "Sitting tasks, light effort (e.g, office work)" taking the mean of girls and boys from table 4.
+```{r preprocess}
+ch_hourly <- ch %>%
+  mutate(time_h = hour(time)) %>%
+  group_by(school, time_h) %>%
+  summarize(mean = mean(co2),
+            lower = quantile(co2, 0.25),
+            upper = quantile(co2, 0.75),
+            n_data = n()) %>%
+  ungroup()
+
+ch_hourly %>%
+  ggplot(aes(x = time_h, y = n_data, fill = school)) +
+  geom_bar(stat = "identity", position = position_dodge())
+
+# there is a reasonable number of data points per hour but missing data at hour 12 for school 2 (no lessons)
+
+tz_hourly <- tz %>%
+  mutate(time_h = hour(date)) %>%
+  group_by(time_h) %>%
+  summarize(mean = mean(co2),
+            lower = quantile(co2, 0.25),
+            upper = quantile(co2, 0.75),
+            n_data = n()) %>%
+  ungroup()
+
+tz_hourly %>%
+  ggplot(aes(x = time_h, y = n_data)) +
+  geom_bar(stat = "identity", position = position_dodge())
+
+# data is measured throughout the day in south africa
+
+# no time data for south africa
+
+```
+
+## Analysis 
+
+### Co2 over time 
+
+```{r}
+ch_hourly %>%
+  ggplot(aes(x = time_h, group = school, color = school)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position =    position_dodge2(width = .2)) +
+  geom_point(aes(y = mean), position = position_dodge2(width = .2)) +
+  scale_color_brewer(palette = "Set2") +
+  scale_x_continuous(breaks = seq(7, 16, 1)) +
+  labs(x = "Daytime (h)", y = "CO2 (Mean and IQR)") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+
+tz_hourly %>%
+  ggplot(aes(x = time_h)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position =    position_dodge2(width = .2)) +
+  geom_point(aes(y = mean), position = position_dodge2(width = .2)) +
+  scale_color_brewer(palette = "Set2") +
+  scale_x_continuous(breaks = seq(7, 17, 1)) +
+  labs(x = "Daytime (h)", y = "CO2 (Mean and IQR)") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+
+```
+### Co2 distribution
+
+```{r}
+ch %>%
+  ggplot(aes(x = co2, color = school, fill = school)) +
+  geom_density(alpha = .2, kernel = "gaussian", adjust = 3) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+
+sa %>%
+  ggplot(aes(x = co2)) +
+  geom_density(alpha = .2, kernel = "gaussian", adjust = 4) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+
+tz %>%
+  ggplot(aes(x = co2)) +
+  geom_density(alpha = .2, kernel = "gaussian", adjust = 3) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank()) 
+```
+### Distribution co2
+
+```{r distribution for co2}
+library(fitdistrplus)
+
+#C_a
+C_a <- 0.038 #Rudnik
+
+#C_o
 C_o <- 400 #p.p.m (taking a higher estimate because higher values ar possible when a lot of traffic ect.)
 
-ch1 <- ch %>% 
-  filter(co2 <2000) %>% #filtering extreme values 
-  mutate(
-    f = ((co2-C_o)/C_a)/1000000) # f in decimal
+#school1
+x_ch1 <- ch %>% 
+  filter(school == "School 1") %>% 
+  pull(co2)
 
-ch1_unfiltered <- ch %>% 
-  mutate(
-    f = ((co2-C_o)/C_a)/1000000) # f in decimal
+#descdist(x_ch1, discrete = FALSE) #normal distribution fits well
+#fitdistr(x_ch1, "normal") #get parameters
 
-satz1 <- satz %>% 
-  mutate(
-    f = ((co2-C_o)/C_a)/1000000)# f in decimal
+x <- seq(400, 3000, by = .1)
+y_ch1 <- dnorm(x, mean = 877, sd = 229)
+x_ch1_norm <- data.frame(cbind(x,y_ch1))
 
-tz1 <- satz1 %>% 
-  filter(co2 < 2000) %>% 
-  filter(country == "Tanzania")
+x_ch1_norm %>% 
+  ggplot(aes(x=x,y=y_ch1)) +
+  geom_line(color= "red") #plot density
 
-tz1_unfiltered <- satz1 %>% 
-  filter(country == "Tanzania")
+#ch1_fit_norm <- fitdist(x_ch1, "norm", lower=c(0,0)) #different fitting function
+#plot(ch1_fit_norm) #plots comparison
 
-sa1 <- satz1 %>% 
-  filter(co2 < 2000) %>% 
-  filter(country == "South Africa")
+co2_distr_ch1 <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dnorm(co2,877,299))
 
-sa1_unfiltered <- satz1 %>% 
-  filter(country == "South Africa")
+sample_co2_ch1 <- sample(co2_distr_ch1$co2, 1000, replace = TRUE, prob = co2_distr_ch1$prob) #sample
+sample_f_ch1 <- tibble(co2 = sample_co2_ch1, f = ((co2-C_o)/C_a)/100000) %>% 
+  dplyr::select(-co2)
 
-colors <- c("Switzerland" = "black", "South Africa" = "red", "Tanzania" = "orange")
+#school 2
+x_ch2 <- ch %>% 
+  filter(school == "School 2") %>% 
+  pull(co2)
 
-plot_distribution_f <- ggplot(ch1, aes(x=f)) +
-  geom_density(aes(color = "Switzerland")) +
-  geom_density(data = sa1, aes(color = "South Africa")) +
-  geom_density(data = tz1, aes(color = "Tanzania")) +
-  ggtitle("Comparison rebreathed fraction (filtered co2 < 2000)") +
-  labs(x = "f",
-         y = "count",
-         color = "Legend") +
-  scale_color_manual(values = colors) +
-   theme(plot.title = element_text(hjust = 0.5))
+#descdist(x_ch2, discrete = FALSE) #gamma distribution fits well
+#fitdistr(x_ch2, "gamma") #get parameters
 
-plot_distribution_f_unfiltered <- ggplot(ch1_unfiltered, aes(x=f)) +
-  geom_density(aes(color = "Switzerland")) +
-  geom_density(data = sa1_unfiltered, aes(color = "South Africa")) +
-  geom_density(data = tz1_unfiltered, aes(color = "Tanzania")) +
-  ggtitle("Comparison rebreathed fraction (unfiltered)") +
-  labs(x = "f",
-         y = "count",
-         color = "Legend") +
-  scale_color_manual(values = colors)
+y_ch2 <- dgamma(x, 6.5, 0.007)
+x_ch2_gamma <- data.frame(cbind(x,y_ch2))
 
-plot_distribution_f
-plot_distribution_f_unfiltered
-```
+x_ch2_gamma %>% 
+  ggplot(aes(x=x,y=y_ch2)) +
+  geom_line(color= "red") #plot density
 
-If we look at the plot, we can see that the value does differ somewhat between countries, creating an distribution with a right tail. I filter values over 2000 p.p.m and compare it to the unfiltered values. For the following calculations i will use the filtered dataset. Remember f is equivalent to the fraction of indoor air that is exhaled breath, which is also the rebreathed fraction. Larger values for f mean that the air quality is worse. As i don't assume different values for outside air quality and the volume of co2 added to air during breathing between countries, the variance of the f_bar values and the co2 values between countries follow the same pattern. For this reason i will sometimes switch between the two. <br>
-It is also evident that the distribution takes a different form for each country. If I want to work with probability distributions, I would have to use a different one for each country. This contains further sources of error, s.d the comparison between the countries thereby risks to become imprecise. 
+#ch2_fit_gamma <- fitdist(x_ch2, "gamma") #different fitting function
+#plot(ch2_fit_gamma) #plots comparison
 
-Calculate $\bar{f}$-values using the f-values $(a1)$:
+co2_distr_ch2 <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dgamma(co2,6.5,0.007))
 
-```{r calculating f_bar}
+sample_co2_ch2 <- sample(co2_distr_ch2$co2, 1000, replace = TRUE, prob = co2_distr_ch2$prob) #sample
+sample_f_ch2 <- tibble(co2 = sample_co2_ch2, f = ((co2-C_o)/C_a)/100000) %>% 
+  dplyr::select(-co2)
 
-f_bar_ch <- ch1 %>% 
-  summarize(f_bar = mean(f, na.rm = TRUE))
+#tanzania
 
-f_bar_sa <- sa1 %>% 
-  summarize(f_bar = mean(f, na.rm = TRUE))
+x_tz <- tz %>% 
+  pull(co2)
 
-f_bar_tz <- tz1 %>% 
-  summarize(f_bar = mean(f, na.rm = TRUE))
+#descdist(x_tz, discrete = FALSE) #normal distribution fits well
+#fitdistr(x_tz, "normal")
 
-f_bar_compare <- tibble(country=c("Switzerland", "South Africa", "Tanzania"), f_bar =  c(f_bar_ch[1,1,drop = TRUE], f_bar_sa[1,1, drop = TRUE], f_bar_tz[1,1, drop = TRUE]))
+y_tz <- dnorm(x, mean = 648, sd = 209)
+x_tz_norm <- data.frame(cbind(x,y_tz))
 
-plot_f_bar <- ggplot(f_bar_compare, aes(x=country, y=f_bar)) +
-  geom_point( color="orange", size=4) +
-  ylab("f_bar") +
-  ggtitle("Comparison of f_bar values") +
-  theme(plot.title = element_text(hjust = 0.5))
-  
-plot_f_bar
+x_tz_norm %>% 
+  ggplot(aes(x=x,y=y_tz)) +
+  geom_line(color= "red")
 
-```
-[For Tanzania and Switzerland only]
+#tz_fit_norm <- fitdist(x_tz, "norm") #different fitting function
+#plot(tz_fit_gamma) #plots comparison
 
-It would be interesting to see, where the variance comes from in the co2 data comes from inside a country. A possible reason could be daytime. In a first, simple analysis i will compare morning (07-1200) and afternoon (1330-17). In a second analysis i would like to incorparate the times where there is a break which is a possibility to open the windows and get fresh air. (possible for Switzerland and Tanzania)
+co2_distr_tz <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dnorm(co2,648,209))
 
-```{r f_bar daytime, echo=FALSE}
-plot_co2_time_ch <- ggplot(ch1, aes(x=time, y=co2, colour=date)) +
-  geom_point(size=0.25) +
-  ggtitle("Course of the co2-value during a day in Switzerland")
+sample_co2_tz <- sample(co2_distr_tz$co2, 1000, replace = TRUE, prob = co2_distr_tz$prob) #sample
+sample_f_tz <- tibble(co2 = sample_co2_tz, f = ((co2-C_o)/C_a)/100000) %>% 
+  dplyr::select(-co2)
 
-ch_morning <- ch1 %>%
-  filter(time < as_hms("12:00:00")) %>% 
-  select(co2) %>% 
-  mutate(code = "morning")
+#south africa
 
-ch_afternoon <- ch1 %>%
-  filter(time > as_hms("13:30:00")) %>% 
-  select(co2) %>% 
-  mutate(code = "afternoon")
+x_sa <- sa %>% 
+  pull(co2)
 
-ch_wholeday <- rbind(ch_morning,ch_afternoon)
+#descdist(x_sa, discrete = FALSE) #normal distribution fits well
+#fitdistr(x_sa, "normal")
 
-plot_wholeday_ch <- ggplot(ch_wholeday, mapping = aes(reorder(x=code, -co2), y=co2)) +
-  geom_violin(aes(color = code)) + 
-  geom_boxplot(color = "grey",alpha=0.2) +
-  xlab("daytime") +
-  ylim(0,2000) +
-  ggtitle("co2 values at different times of the day in Switzerland")
+y_sa <- dnorm(x, mean = 1457, sd = 596)
+x_sa_norm <- data.frame(cbind(x,y_sa))
 
-tz1$date1 <- date(tz1$date)
-tz1$hour <- hour(tz1$date)
-tz1$minute <- minute(tz1$date)
-tz1$second <- second(tz1$date)
+x_sa_norm %>% 
+  ggplot(aes(x=x,y=y_sa)) +
+  geom_line(color= "red")
 
-tz2 <- tz1 %>% 
-  mutate(time = paste0(hour,":",minute,":",second),) %>% 
-  mutate(time = as_hms(time)) %>% 
-  mutate (date = date1)
+#sa_fit_norm <- fitdist(x_sa, "norm") #different fitting function
+#plot(sa_fit_gamma) #plots comparison
 
-plot_co2_time_tz <- ggplot(tz2, aes(x=time, y=co2, colour=date)) +
-  geom_point(size=0.25) + 
-  ggtitle("Course of the co2-value during a day in Tanzania")
+co2_distr_sa <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dnorm(co2,1457,596))
 
-plot_co2_time_ch
-plot_co2_time_tz
-
-tz_morning <- tz2 %>%
-  filter(time < as_hms("12:00:00")) %>% 
-  select(co2) %>% 
-  mutate(code = "morning")
-
-tz_afternoon <- tz2 %>%
-  filter(time > as_hms("13:30:00")) %>% 
-  select(co2) %>% 
-  mutate(code = "afternoon")
-
-tz_wholeday <- rbind(tz_morning,tz_afternoon)
-
-plot_wholeday_tz <- ggplot(tz_wholeday, mapping = aes(reorder(x=code, co2), y=co2)) +
-  geom_violin(aes(color = code)) + 
-  geom_boxplot(color = "grey",alpha=0.2) +
-  xlab("daytime") + 
-  ylim(0,2000) +
-  ggtitle("co2 values at different times of the day in Tanzania")
-
-plot_wholeday_ch
-plot_wholeday_tz
+sample_co2_sa <- sample(co2_distr_sa$co2, 1000, replace = TRUE, prob = co2_distr_sa$prob) #sample
+sample_f_sa <- tibble(co2 = sample_co2_sa, f = ((co2-C_o)/C_a)/100000) %>% 
+  dplyr::select(-co2)
 
 ```
 
-We see that after the lunch break, the levels decrease to the levels in beginning of the morning, also the averages do not really differ and are overall lower in the afternonn. Therefore we drop the assumption, that the concentration increases steadily during a day. Instead we follow the theory, that it decreases with duration after a break.<br>
-I now assume that breaks are taken from 1000-1015, from 1200-1330 and from 1500-1515. That means we have four blocks: <br>
-
-block1: 0730-1000 <br>
-block2: 1015-1200 <br>
-block3: 1330-1500 <br>
-block4: 1515-1645 <br>
-period indicates if it is the first or the second half of the block.
-
-```{r daytime ch, echo = FALSE}
-ch_pause_first1 <- ch1 %>%
-  filter(time < as_hms("08:45:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(1)) %>% 
-  mutate(period = as.factor(1)) %>% 
-  mutate(code = 1.1)
-
-ch_pause_first2 <- ch1 %>% 
-  filter(time < as_hms("11:00:00"), time > as_hms("10:15:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(2)) %>% 
-  mutate(period = as.factor(1)) %>% 
-  mutate(code = 2.1)
-   
-ch_pause_first3 <- ch1 %>% 
-  filter(time < as_hms("14:15:00"), time > as_hms("13:30:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(3)) %>% 
-  mutate(period = as.factor(1)) %>% 
-  mutate(code = 3.1)
-
-ch_pause_first4 <- ch1 %>% 
-  filter(time < as_hms("16:00:00"), time > as_hms("15:15:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(4)) %>% 
-  mutate(period = as.factor(1))  %>% 
-  mutate(code = 4.1)
-
-ch_pause_second1 <- ch1 %>%
-  filter(time > as_hms("08:45:00"), time < as_hms("10:00:00")) %>% 
-  select(co2)%>% 
-  mutate(block = as.factor(1)) %>% 
-  mutate(period = as.factor(2)) %>% 
-  mutate(code = 1.2)
-
-ch_pause_second2 <- ch1 %>% 
-  filter(time > as_hms("11:00:00"), time < as_hms("12:00:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(2)) %>% 
-  mutate(period = as.factor(2)) %>% 
-  mutate(code = 2.2)
-   
-ch_pause_second3 <- ch1 %>% 
-  filter(time > as_hms("14:15:00"), time < as_hms("15:00:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(3)) %>% 
-  mutate(period = as.factor(2))  %>% 
-  mutate(code = 3.2)
-
-ch_pause_second4 <- ch1 %>% 
-  filter(time > as_hms("16:00:00"), time < as_hms("16:45:00")) %>% 
-  select(co2)%>% 
-  mutate(block = as.factor(4)) %>% 
-  mutate(period = as.factor(2)) %>% 
-  mutate(code = 4.2)
-
-ch_pause <- rbind(ch_pause_first1,ch_pause_first2,ch_pause_first3,ch_pause_first4,ch_pause_second1,ch_pause_second2,ch_pause_second3,ch_pause_second4)
-
-plot_pause_ch <- ggplot(ch_pause, mapping = aes(x=reorder(code,code), y=co2)) +
-  geom_violin(aes(color = period, fill = block)) + 
-  geom_boxplot(color = "grey",alpha=0.2) +
-  xlab("daytime seperated in blocks and periods") +
-   ggtitle("Co2 concentration during a day in Switzerland")
-
-plot_period_ch <- ggplot(ch_pause, mapping = aes(x=period, y=co2)) +
-  geom_violin(aes(color=period)) +
-  geom_boxplot(color="grey", alpha =0.2) +
-  xlab("period after break") +
-  ggtitle("Difference in co2 values in Tanzania")+
-  ylim(0,2000)
-
-tz_pause_first1 <- tz2 %>%
-  filter(time < as_hms("08:45:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(1)) %>% 
-  mutate(period = as.factor(1)) %>% 
-  mutate(code = 1.1)
-
-tz_pause_first2 <- tz2 %>% 
-  filter(time < as_hms("11:00:00"), time > as_hms("10:15:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(2)) %>% 
-  mutate(period = as.factor(1)) %>% 
-  mutate(code = 2.1)
-   
-tz_pause_first3 <- tz2 %>% 
-  filter(time < as_hms("14:15:00"), time > as_hms("13:30:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(3)) %>% 
-  mutate(period = as.factor(1)) %>% 
-  mutate(code = 3.1)
-
-tz_pause_first4 <- tz2 %>% 
-  filter(time < as_hms("16:00:00"), time > as_hms("15:15:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(4)) %>% 
-  mutate(period = as.factor(1))  %>% 
-  mutate(code = 4.1)
-
-tz_pause_second1 <- tz2 %>%
-  filter(time > as_hms("08:45:00"), time < as_hms("10:00:00")) %>% 
-  select(co2)%>% 
-  mutate(block = as.factor(1)) %>% 
-  mutate(period = as.factor(2)) %>% 
-  mutate(code = 1.2)
-
-tz_pause_second2 <- tz2 %>% 
-  filter(time > as_hms("11:00:00"), time < as_hms("12:00:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(2)) %>% 
-  mutate(period = as.factor(2)) %>% 
-  mutate(code = 2.2)
-   
-tz_pause_second3 <- tz2 %>% 
-  filter(time > as_hms("14:15:00"), time < as_hms("15:00:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(3)) %>% 
-  mutate(period = as.factor(2))  %>% 
-  mutate(code = 3.2)
-
-tz_pause_second4 <- tz2 %>% 
-  filter(time > as_hms("16:00:00"), time < as_hms("16:45:00")) %>% 
-  select(co2) %>% 
-  mutate(block = as.factor(4)) %>% 
-  mutate(period = as.factor(2)) %>% 
-  mutate(code = 4.2)
-
-tz_pause <- rbind(tz_pause_first1,tz_pause_first2,tz_pause_first3,tz_pause_first4,tz_pause_second1,tz_pause_second2,tz_pause_second3,tz_pause_second4)
-
-plot_pause_tz <- ggplot(tz_pause, mapping = aes(x=reorder(code,code), y=co2)) +
-  geom_violin(aes(color = period, fill = block)) + 
-  geom_boxplot(color = "grey",alpha=0.2) +
-  xlab("daytime seperated in blocks and periods") +
-  ggtitle("Co2 concentration during a day in Tanzania")
-
-plot_period_tz <- ggplot(tz_pause, mapping = aes(x=period, y=co2)) +
-  geom_violin(aes(color=period)) +
-  geom_boxplot(color="grey", alpha =0.2) +
-  xlab("period after break") +
-  ggtitle("Difference in co2 values in Tanzania")+
-  ylim(0,2000)
-
-plot_pause_ch
-plot_pause_tz
-
-plot_period_ch
-plot_period_tz
-
-ch_pause <- ch_pause %>% 
-  mutate(f = ((co2-C_o)/C_a)/1000000)
-  
-ch_pause_first <- rbind(ch_pause_first1,ch_pause_first2,ch_pause_first3,ch_pause_first4)
-ch_pause_first <- ch_pause_first %>% 
-  mutate(f = ((co2-C_o)/C_a)/1000000) %>% 
-  summarize(mean= mean(f))
-
-ch_pause_second <- rbind(ch_pause_second1,ch_pause_second2,ch_pause_second3,ch_pause_second4)
-ch_pause_second <- ch_pause_second %>% 
-  mutate(f = ((co2-C_o)/C_a)/1000000) %>% 
-  summarize(mean=mean(f))
-## calculating f_bar for the different periods
-f_bar_pause_first <- ch_pause_first[1,1, drop=TRUE]
-f_bar_pause_second <- ch_pause_second[1,1, drop=TRUE]
-```
-  
-Indeed, we see variation in the data. The co2-values seem to increase in the second period after the break in Switzerland. This observation serves as motivation to pursue this approach further. [Here I should check if my assumptions for the break times are correct] In the data from tanzania there isn't the same pattern, especially after the lunch break we see very high values. <br>
-The observation concerning the course of the co2 values could be interesting for modelling the change of transmission risk during a day.
-
-Now i will proceed with the $q$-value and the parameter $I$. Here we will consider a truncted student distribution. It is important to take a distribution that has the most values at very low levels, but then has a long tail probability. Very high values should be unlikely but possible. The expression of the quanta in different persons is characterized by this characteristic. <br>
-
-Since we have limited data to estimate a distribution on it, I had to be a little imprecise to determine the parameters. I determined the mean value via the weighted average of the different studies. I then determined the standard deviation and the degrees of freedom by hand. I did this in such a way that the simulations each had about the same number of high quanta (>10) as reported by Escombe. I would like to point out that this approach is not very exact and there may be better alternatives to estimate the parameters. <br>
+## Quanta
 
 I'll use the following studies for calculating the meanparameter: <br>
 
-  Riley (1962): 130 patients, q-Wert: 1.25 <br>
-  Escombe (2008): 117 patients, q-Wert: 8.2 <br>
-  Nardell (1991) : 1 patients, q-Wert: 12.5 <br>
-  Andrews (2014) : 571 patients, q-Wert: 0.89 <br>
-  Dhamadhakari (2012) : 17 patients, q-Wert: 138/34 (no mask/mask) <br>
-  
+  Riley (1962): 130 patients, q: 1.25 <br>
+  Escombe (2008): 117 patients, q: 8.2 <br>
+  Nardell (1991) : 1 patients, q: 12.5 <br>
+  Andrews (2014) : 571 patients, q: 0.89 <br>
+  Dhamadhakari (2012) : 17 patients, q: 138/34 (no mask/mask) <br>
+
 ```{r quanta}
-q <- (1.25*130+8.2*117+12.5+0.89*571+138*17)/(130+117+1+571+138) #mean
+
+q <- (1.25*130+8.2*117+12.5+0.89*571+138*17)/(130+117+1+571+138) #weighted mean from different studies
 
 #Escombe Table 2
 mean_one_inf <- mean(c(12,3,5.5,1.8,18,12)) #mean quanta of pers. which infected one pig
@@ -412,159 +304,135 @@ q_inf_persons <- c(12,3,2.9,5.5,1.8,18,40,12,226,52,mean_two_inf,rep(mean_one_in
 # reported quanta plus the two missing
 q_sample_total_unif <- c(q_inf_persons, runif(117-length(q_inf_persons), min = 0, max =1))
 #  rest unif in [0,1], as quanta below 1 isnt enough to infect an indidual 
-sd <- sd(q_sample_total_unif)
 
+### hier noch SD neu berechnen
 dq <- function(x) {
-  dtrunc(x, spec = "st", a = 0, b = 300, mu = q, sigma = sd, nu = 1)
+  dtrunc(x, spec = "st", a = 0, b = 300, mu = q, sigma = 1.235, nu = 1) #sigma aus Escombe
 } #function using parameters from option 1
 
 rq_distr <- data.frame(quanta = seq(0, 200, .1)) %>% 
   mutate(prob = dq(quanta))
 
-sample_q <- sample(rq_distr$quanta, 1000, replace = TRUE, prob = rq_distr$prob)
-
 plot2 <- ggplot(rq_distr, aes(x = quanta, y = prob)) +
   geom_line() 
+plot2
 
+sample_q <- sample(rq_distr$quanta, 1000, replace = TRUE, prob = rq_distr$prob)
 plot(sample_q)
 
-plot2
 ```
 
-```{r preparation}
-class_ch <- 20
-class_sa <- 30 #Powerpoint
-class_tz <- 50 #Powerpoint
+## Rest of the parameters
 
-prev_youth_ch <- (1.65 + 1.14 + 0.46 + 5.19 + 5.58 + 4.7)/600000 #decimal; values for age group 10-14 and 15-19 over the last three years, https://www.bag.admin.ch/bag/de/home/zahlen-und-statistiken/zahlen-zu-infektionskrankheiten.exturl.html/aHR0cHM6Ly9tZWxkZXN5c3RlbWUuYmFnYXBwcy5jaC9pbmZyZX/BvcnRpbmcvZGF0ZW5kZXRhaWxzL2QvdHViZXJrdWxvc2UuaHRt/bD93ZWJncmFiPWlnbm9yZQ==.html
-prev_youth_sa <- 149/100000 #decimal; for age group 15-24; https://www.thelancet.com/action/showPdf?pii=S1473-3099%2822%2900149-9
-prev_youth_tz <- 1177/61741120 
+```{r parameters}
+#n
+n_ch <- 20
+n_sa <- 30 #Powerpoint
+n_tz <- 50 #Powerpoint
+
+#I
+prev_ch <- (0.46 + 8.23)/200000 #decimal; values for age group 10-14 and 15-19 over the last two years, https://www.bag.admin.ch/bag/de/home/zahlen-und-statistiken/zahlen-zu-infektionskrankheiten.exturl.html/aHR0cHM6Ly9tZWxkZXN5c3RlbWUuYmFnYXBwcy5jaC9pbmZyZX/BvcnRpbmcvZGF0ZW5kZXRhaWxzL2QvdHViZXJrdWxvc2UuaHRt/bD93ZWJncmFiPWlnbm9yZQ==.html
+
+prev_sa <- 30000/59000000 #https://worldhealthorg.shinyapps.io/tb_profiles/?_inputs_&entity_type=%22country%22&lan=%22EN%22&iso2=%22ZA%22
+
+prev_tz <- 1177/61741120 
 #0.4 https://ntlp.go.tz/tuberculosis/paediatric-tb/
 
-I_ch <- prev_youth_ch*class_ch #prevalence per class (per year)
-I_sa <- prev_youth_sa*class_sa
-I_tz <- prev_youth_tz*class_sa
-
-f_bar_ch <- f_bar_compare[1,2, drop=TRUE]
-f_bar_sa <- f_bar_compare[2,2, drop=TRUE]
-f_bar_tz <- f_bar_compare[3,2, drop=TRUE]
+I_ch <- prev_ch*n_ch #prevalence per class (per year)
+I_sa <- prev_sa*n_sa
+I_tz <- prev_tz*n_sa
 
 day <- 8
 week <- 8*5
 month <- 8*5*4
 year <- 8*5*4*12
+```
 
+```{r preparing}
 #preparing datasets for plotting
-df_ch <- tibble(country = c(rep("ch",1000)), f_bar = c(rep(f_bar_ch,1000)), f_bar_first = c(rep(f_bar_pause_first,1000)), f_bar_second = c(rep(f_bar_pause_second,1000)), I = c(rep(I_ch,1000)), I_standart = c(rep(0.1,1000)), q = sample_q, year = c(rep(year,1000)), month = c(rep(month,1000)), week =c(rep(week,1000)), day = c(rep(day,1000)), n = c(rep(class_ch,1000))) %>%
-  mutate(P_year = 1 - exp(-(f_bar*I*q*year)/n)) %>% 
-  mutate(P_month = 1 - exp(-(f_bar*I*q*month)/n)) %>% 
-  mutate(P_week = 1 - exp(-(f_bar*I*q*week)/n)) %>% 
-  mutate(P_day = 1 - exp(-(f_bar*I*q*day)/n)) %>% 
-  mutate(P_year_one = 1 - exp(-(f_bar*0.01*q*year)/n)) %>% 
-  mutate(P_month_one = 1 - exp(-(f_bar*0.01*q*month)/n)) %>% 
-  mutate(P_week_one = 1 - exp(-(f_bar*0.01*q*week)/n)) %>% 
-  mutate(P_day_one = 1 - exp(-(f_bar*0.01*q*day)/n)) %>% 
-  mutate(P_year_first = 1 - exp(-(f_bar_first*I*q*year)/n)) %>% 
-  mutate(P_month_first = 1 - exp(-(f_bar_first*I*q*month)/n)) %>% 
-  mutate(P_week_first = 1 - exp(-(f_bar_first*I*q*week)/n)) %>% 
-  mutate(P_day_first = 1 - exp(-(f_bar_first*I*q*day)/n)) %>% 
-  mutate(P_year_second = 1 - exp(-(f_bar_second*I*q*year)/n)) %>% 
-  mutate(P_month_second = 1 - exp(-(f_bar_second*I*q*month)/n)) %>% 
-  mutate(P_week_second = 1 - exp(-(f_bar_second*I*q*week)/n)) %>% 
-  mutate(P_day_second = 1 - exp(-(f_bar_second*I*q*day)/n))
+df_ch1 <- tibble(school = c(rep("school 1", 1000)), f = sample_f_ch1, q = sample_q) %>% 
+  mutate(P_year = 1 - exp(-(f*I_ch*q*year)/n_ch)) %>% 
+  mutate(P_month = 1 - exp(-(f*I_ch*q*month)/n_ch)) %>% 
+  mutate(P_week = 1 - exp(-(f*I_ch*q*week)/n_ch)) %>% 
+  mutate(P_day = 1 - exp(-(f*I_ch*q*day)/n_ch)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*0.01*q*year)/n_ch)) %>% 
+  mutate(P_month_one = 1 - exp(-(f*0.01*q*month)/n_ch)) %>% 
+  mutate(P_week_one = 1 - exp(-(f*0.01*q*week)/n_ch)) %>% 
+  mutate(P_day_one = 1 - exp(-(f*0.01*q*day)/n_ch))
 
-df_sa <- tibble(country = c(rep("sa",1000)), f_bar = c(rep(f_bar_sa,1000)), I = c(rep(I_sa,1000)), I_standart = c(rep(0.1,1000)), q = sample_q, year = c(rep(year,1000)), month = c(rep(month,1000)), week =c(rep(week,1000)), day = c(rep(day,1000)), n = c(rep(class_sa,1000)), n_ch = c(rep(class_ch,1000))) %>%
-  mutate(P_year = 1 - exp(-(f_bar*I*q*year)/n)) %>% 
-  mutate(P_month = 1 - exp(-(f_bar*I*q*month)/n)) %>% 
-  mutate(P_week = 1 - exp(-(f_bar*I*q*week)/n)) %>% 
-  mutate(P_day = 1 - exp(-(f_bar*I*q*day)/n)) %>% 
-  mutate(P_year_one = 1 - exp(-(f_bar*0.01*q*year)/n_ch)) %>% 
-  mutate(P_month_one = 1 - exp(-(f_bar*0.01*q*month)/n_ch)) %>% 
-  mutate(P_week_one = 1 - exp(-(f_bar*0.01*q*week)/n_ch)) %>% 
-  mutate(P_day_one = 1 - exp(-(f_bar*0.01*q*day)/n_ch))
+df_ch2 <- tibble(school = c(rep("school 2", 1000)), f = sample_f_ch2, q = sample_q) %>% 
+  mutate(P_year = 1 - exp(-(f*I_ch*q*year)/n_ch)) %>% 
+  mutate(P_month = 1 - exp(-(f*I_ch*q*month)/n_ch)) %>% 
+  mutate(P_week = 1 - exp(-(f*I_ch*q*week)/n_ch)) %>% 
+  mutate(P_day = 1 - exp(-(f*I_ch*q*day)/n_ch)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*0.01*q*year)/n_ch)) %>% 
+  mutate(P_month_one = 1 - exp(-(f*0.01*q*month)/n_ch)) %>% 
+  mutate(P_week_one = 1 - exp(-(f*0.01*q*week)/n_ch)) %>% 
+  mutate(P_day_one = 1 - exp(-(f*0.01*q*day)/n_ch))
 
-df_tz <- tibble(country = c(rep("tz",1000)), f_bar = c(rep(f_bar_tz,1000)), I = c(rep(I_tz,1000)), I_standart = c(rep(0.1,1000)), q = sample_q, year = c(rep(year,1000)), month = c(rep(month,1000)), week =c(rep(week,1000)), day = c(rep(day,1000)), n = c(rep(class_tz,1000)), n_ch = c(rep(class_ch,1000))) %>%
-  mutate(P_year = 1 - exp(-(f_bar*I*q*year)/n)) %>% 
-  mutate(P_month = 1 - exp(-(f_bar*I*q*month)/n)) %>% 
-  mutate(P_week = 1 - exp(-(f_bar*I*q*week)/n)) %>% 
-  mutate(P_day = 1 - exp(-(f_bar*I*q*day)/n)) %>% 
-  mutate(P_year_one = 1 - exp(-(f_bar*0.01*q*year)/n_ch)) %>% 
-  mutate(P_month_one = 1 - exp(-(f_bar*0.01*q*month)/n_ch)) %>% 
-  mutate(P_week_one = 1 - exp(-(f_bar*0.01*q*week)/n_ch)) %>% 
-  mutate(P_day_one = 1 - exp(-(f_bar*0.01*q*day)/n_ch)) 
+df_tz <- tibble(school = c(rep("tanzania", 1000)), f = sample_f_tz, q = sample_q) %>% 
+  mutate(P_year = 1 - exp(-(f*I_tz*q*year)/n_tz)) %>% 
+  mutate(P_month = 1 - exp(-(f*I_tz*q*month)/n_tz)) %>% 
+  mutate(P_week = 1 - exp(-(f*I_tz*q*week)/n_tz)) %>% 
+  mutate(P_day = 1 - exp(-(f*I_tz*q*day)/n_tz)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*0.01*q*year)/n_ch)) %>% 
+  mutate(P_month_one = 1 - exp(-(f*0.01*q*month)/n_ch)) %>% 
+  mutate(P_week_one = 1 - exp(-(f*0.01*q*week)/n_ch)) %>% 
+  mutate(P_day_one = 1 - exp(-(f*0.01*q*day)/n_ch))
 
-df_complet <- bind_rows(df_ch, df_sa, df_tz)
+df_sa <- tibble(school = c(rep("south africa", 1000)), f = sample_f_sa, q = sample_q) %>% 
+  mutate(P_year = 1 - exp(-(f*I_sa*q*year)/n_sa)) %>% 
+  mutate(P_month = 1 - exp(-(f*I_sa*q*month)/n_sa)) %>% 
+  mutate(P_week = 1 - exp(-(f*I_sa*q*week)/n_sa)) %>% 
+  mutate(P_day = 1 - exp(-(f*I_sa*q*day)/n_sa)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*0.01*q*year)/n_ch)) %>% 
+  mutate(P_month_one = 1 - exp(-(f*0.01*q*month)/n_ch)) %>% 
+  mutate(P_week_one = 1 - exp(-(f*0.01*q*week)/n_ch)) %>% 
+  mutate(P_day_one = 1 - exp(-(f*0.01*q*day)/n_ch))
+
+df_complet <- bind_rows(df_ch1, df_ch2, df_sa, df_tz)
 
 ```
 
 ```{r plotting}
-plot_base_day <- ggplot(df_complet, aes(x = country, y=P_day, colour = country)) +  
-  geom_violin(width = 1) +
+df_complet %>% 
+  ggplot(aes(x = school, y=P_day$f, colour = school))+
   geom_boxplot(width=0.3, color="black", alpha=0.2) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   xlab("Country") + 
   ylab("Daily risk of infection")
 
-plot_base_week <- ggplot(df_complet, aes(x = country, y=P_week, colour = country)) +  
-  geom_violin(width = 1) +
+df_complet %>% 
+  ggplot(aes(x = school, y=P_week$f, colour = school))+
   geom_boxplot(width=0.3, color="black", alpha=0.2) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   xlab("Country") + 
   ylab("Weekly risk of infection")
 
-plot_base_month <- ggplot(df_complet, aes(x = country, y=P_month, colour = country)) +   
-  geom_violin(width = 1) +
+df_complet %>% 
+  ggplot(aes(x = school, y=P_month$f, colour = school))+
   geom_boxplot(width=0.3, color="black", alpha=0.2) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   xlab("Country") + 
   ylab("Monthly risk of infection")
 
-plot_base_year <- ggplot(df_complet, aes(x = country, y=P_year, colour = country)) +   
-  geom_violin(width = 1) +
+df_complet %>% 
+  ggplot(aes(x = school, y=P_year$f, colour = school))+
   geom_boxplot(width=0.3, color="black", alpha=0.2) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   xlab("Country") + 
   ylab("Yearly risk of infection")
-
-plot_base_day
-plot_base_week
-plot_base_month
-plot_base_year
-
 ```
 
 Now I will compare the risks of infection, assuming that the prevalence is the same for every country and also assuming that the class size is the same. The prevalence per country is not used. This is to highlight the influence of air quality.
 
-```{r plotting same prevalence}
-plot_base_year_same <- ggplot(df_complet, aes(x = country, y=P_year_one, colour = country)) +  
-  geom_violin(width = 1) +
+```{r same prevalence}
+
+df_complet %>% 
+  ggplot(aes(x = school, y=P_year_one$f, colour = school)) +  
   geom_boxplot(width=0.3, color="black", alpha=0.2) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   xlab("Country") + 
-  ylab("Yearly risk of infection") +
-  ggtitle("")
-
-plot_base_year_same
-
-```
-
-It can be seen that this makes the risk of infection between the three countries more balanced.  <br>
-
-Next, I will consider the influence of time after the last break. However, this analysis only makes sense for Switzerland, since no significant differences were found in the Tanzania data, perhaps the timing for breaks is different there.
-
-
-```{r f}
-df_ch_breaks <- tibble(phase = c(rep("1",500), rep("2",500)), f_bar = c(rep(f_bar_pause_first,500), rep(f_bar_pause_second,500)), I = c(rep(I_ch,1000)), q = sample_q, year = c(rep(year,1000)), n = c(rep(class_ch,1000))) %>%
-  mutate(P_year = 1 - exp(-(f_bar*I*q*year)/n))
-
-plot_P_year_phase <- ggplot(df_ch_breaks, aes(x = phase, y=P_year, fill = phase)) +  
-  geom_violin(width = 1) +
-  geom_boxplot(width=0.3, color="black", alpha=0.2) +
-  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
-  xlab("Phase") + 
   ylab("Yearly risk of infection")
 
-plot_P_year_phase
-
-```  
-Rein optisch ist nicht ein riesiger Unterschid erkennbar. Es ist jedoch ersichtlich, dass deutlich höhere Werte plausibel sind.
+```

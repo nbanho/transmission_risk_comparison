@@ -10,7 +10,7 @@ satz <- read_dta("data-raw/co2-sa-tz.dta") %>%
   mutate(country = ifelse(country == 0, "South Africa", "Tanzania"),
          date = as.character(date),
          date = as.POSIXct(date, format = "%Y/%m/%d %H:%M:%S")) %>%
-  select(country, date, carbondioxy) %>%
+  dplyr::select(country, date, carbondioxy) %>%
   set_names(c("country", "date", "co2"))
 
 saveRDS(satz, "data-clean/co2-sa-tz.rds")
@@ -21,7 +21,7 @@ saveRDS(satz, "data-clean/co2-sa-tz.rds")
 ch <- read_csv("data-raw/co2-ch.csv") %>%
   rename(co2 = co2ppm) %>%
   mutate(country = "Switzerland") %>%
-  select(country, school, date, time, co2, n)
+  dplyr::select(country, school, date, time, co2, n)
 
 
 saveRDS(ch, "data-clean/co2-ch.rds")

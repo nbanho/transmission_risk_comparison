@@ -35,6 +35,8 @@ library(ggstatsplot)
 library(MASS)
 library(fitdistrplus)
 library(truncnorm)
+library(tidybayes)
+library(ggpubr)
 ```
 
 ## Data 
@@ -188,6 +190,7 @@ ggplot(loessData_ch1, aes(x, y)) +
   geom_line(col = "blue") +
   facet_wrap(~method) +
   theme_bw(16)
+
 ##school 2
 dat_ch2 <- data.frame(
   x = 1:length(ch2$co2),
@@ -250,8 +253,8 @@ ggplot(loessData_sa, aes(x, y)) +
 ### Co2 distribution
 
 ```{r}
-ch %>% #density plot ch
-  ggplot(aes(x = co2, color = school, fill = school)) +
+loessData_ch %>% #density plot ch
+  ggplot(aes(x = y, color = school, fill = school)) +
   geom_density(alpha = .2, kernel = "gaussian", adjust = 3) +
   scale_x_continuous(expand = c(0,0)) +
   scale_color_brewer(palette = "Set2") +
@@ -293,7 +296,7 @@ loessData_tz %>% #density plot tz smooth
 
 ```{r distribution for co2 ch1}
 #C_a
-C_a <- (((0.0048 + 0.0041 + 0.0053 + 0.0042)/4)*60)/8 #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5666301/ mean girls (11-16 and 16-21), boys (11-16 and 16-21) for co2 production rate per minute, the breathing rate (8) comes from Rudnick paper
+C_a <- ((0.0042)*60)/8 #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5666301/ mean girls (11-16 and 16-21), boys (11-16 and 16-21) for co2 production rate per minute, the breathing rate (8) comes from Rudnick paper
 
 #C_o
 C_o <- 400 #p.p.m (taking a higher estimate because higher values ar possible when a lot of traffic ect.)
@@ -306,64 +309,79 @@ x_ch1 <- ch %>%
 
 descdist(x_ch1, discrete = FALSE) #normal distribution fits well
 fitdistr(x_ch1, "gamma") #get parameters
+
 x <- seq(400, 3000, by = .1)
 
-y_ch1 <- dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 14.71, rate = 0.017) 
-x_ch1_gamma <- data.frame(cbind(x,y_ch1))
+co2_distr_ch1 <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dtrunc(co2, spec = "gamma", a = 400, b = 3000, shape = 15.5, rate = 0.017) )
 
-x_ch1_gamma %>% 
+plot_co2_ch1 <- co2_distr_ch1 %>% 
   ggplot(aes(x=x,y=y_ch1)) +
   geom_line(color= "red") +
-  ggtitle("Modeled distribution (Switzerland / School 1)")+#plot density
+  ggtitle("Switzerland / School 1")+#plot density
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
   theme_bw() +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 0.004))  +
   scale_x_continuous(limits = c(400, 3000))
 
-ch1_fit_gamma <- fitdist(x_ch1, "gamma", lower=c(0,0)) #different fitting function
-plot(ch1_fit_gamma) #plots comparison
-
-co2_distr_ch1 <- data.frame(co2 = seq(400, 3000, .1)) %>% 
-  mutate(prob = dtrunc(co2, spec = "gamma", a = 400, b = 3000, shape = 14.71, rate = 0.017) )
-
 sample_co2_ch1 <- sample(co2_distr_ch1$co2, 10000, replace = TRUE, prob = co2_distr_ch1$prob) #sample co2
 sample_f_ch1 <- tibble(co2 = sample_co2_ch1, f = ((co2-C_o)/C_a)/1000000) %>% #sample f
   dplyr::select(-co2)
+
+####histogram / density comparison
+hist(loessData_ch1$y, # histogram
+ col="peachpuff", # column color
+ border="black",
+ prob = TRUE, # show densities instead of frequencies
+ xlab = "co2",
+ main = "Data vs Model",
+ breaks = 7,
+ xlim = c(400,1800),
+ ylim = c(0,0.003))
+lines(co2_distr_ch1, # density plot
+ lwd = 2, # thickness of line
+ col = "chocolate3")
 
 ```
 
 ```{r distribution for co2 ch2}
 #school 2
 x_ch2 <- loessData_ch2 %>% 
-  pull(y)
+  pull(y) #pull filtered data
 
-descdist(x_ch2, discrete = FALSE) #gamma fits ok
-fitdistr(x_ch2, "normal") #get parameters
-fitdistr(x_ch2, "gamma")
+descdist(x_ch2, discrete = FALSE) #gamma fits ok 
+fitdistr(x_ch2, "gamma") #get parameters
 
-x <- seq(400, 3000, by = .1)
-
-y_ch2 <- dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 7.4, rate = 0.006) 
-x_ch2_norm <- data.frame(cbind(x,y_ch2))
-
-x_ch2_norm %>% 
+co2_distr_ch2 <- data.frame(co2 = seq(400, 3000, .1)) %>% #create data frame
+  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 6.55, rate = 0.006)) 
+#7.4
+plot_co2_ch2 <- co2_distr_ch2 %>% #plots density
   ggplot(aes(x=x,y=y_ch2)) +
   geom_line(color= "red") +
-  ggtitle("Modeled distribution (Switzerland / School 2)")+#plot density
+  ggtitle("Switzerland / School 2")+#plot density
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
   theme_bw() +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 0.004))  +
   scale_x_continuous(limits = c(400, 3000))
 
-ch2_fit_weibull <- fitdist(x_ch2, "weibull") #different fitting function
-plot(ch2_fit_weibull) #plots comparison
-
-co2_distr_ch2 <- data.frame(co2 = seq(400, 3000, .1)) %>% 
-  mutate(prob = dtrunc(x, spec = "norm", a = 400, b = 3000, mean = 933.5, sd = 389.16))
-
 sample_co2_ch2 <- sample(co2_distr_ch2$co2, 10000, replace = TRUE, prob = co2_distr_ch2$prob) #sample
 sample_f_ch2 <- tibble(co2 = sample_co2_ch2, f = ((co2-C_o)/C_a)/1000000) %>% 
   dplyr::select(-co2)
+
+####histogram / density comparison
+hist(loessData_ch2$y, # histogram
+ col="peachpuff", # column color
+ border="black",
+ prob = TRUE, # show densities instead of frequencies
+ xlab = "co2",
+ main = "Data vs Model",
+ breaks = 7,
+ xlim = c(400,2500),
+ ylim = c(0,0.0015))
+lines(co2_distr_ch2, # density plot
+ lwd = 2, # thickness of line
+ col = "chocolate3")
+
 ```
 
 ```{r distribution for co2 tz}
@@ -376,33 +394,41 @@ x_tz <- as.numeric(x_tz)
 descdist(x_tz, discrete = FALSE, boot = 100) #gamma fits ok
 fitdistr(x_tz, "t") #get parameters
 
-y_tz <- dtrunc(x, spec = "st", a = 400, b = 3000, mu = 593.95, sigma = 80, nu = 1.55)
+co2_distr_tz <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dtrunc(x, spec = "st", a = 400, b = 3000, mu = 593.95, sigma = 80, nu = 1.55))
 
-x_tz_gamma <- data.frame(cbind(x,y_tz))
-
-x_tz_gamma %>% 
+plot_co2_tz <- co2_distr_tz %>% 
   ggplot(aes(x=x,y=y_tz)) +
   geom_line(color= "red") +
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
-  ggtitle("Modeled distribution (Tanzania)") +
+  ggtitle("Tanzania") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 0.0075)) +
   scale_x_continuous(limits = c(400, 3000))
 
-tz_fit_gamma <- fitdist(x_tz, "gamma") #different fitting function
-plot(tz_fit_gamma) #plots comparison
-
-co2_distr_tz <- data.frame(co2 = seq(400, 3000, .1)) %>% 
-  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 18.2, rate = 0.03))
-
 sample_co2_tz <- sample(co2_distr_tz$co2, 10000, replace = TRUE, prob = co2_distr_tz$prob) #sample
 sample_f_tz <- tibble(co2 = sample_co2_tz, f = ((co2-C_o)/C_a)/1000000) %>% 
   dplyr::select(-co2)
+
+####histogram / density comparison
+hist(loessData_tz$y, # histogram
+ col="peachpuff", # column color
+ border="black",
+ prob = TRUE, # show densities instead of frequencies
+ xlab = "co2",
+ main = "Data vs Model",
+ breaks = 14,
+ xlim = c(400, 1600),
+ ylim = c(0,0.006))
+lines(co2_distr_tz, # density plot
+ lwd = 2, # thickness of line
+ col = "chocolate3")
+
 ```
+
 
 ```{r distribution for co2 sa}
 #south africa
-
 x_sa <- loessData_sa %>% 
   pull(y)
 
@@ -411,30 +437,46 @@ x_sa <- as.numeric(x_sa)
 descdist(x_sa, discrete = FALSE) #normal/gamma fits ok -> after comparison --> gamma is better
 fitdistr(x_sa, "gamma") #get parameters
 
-y_sa <- dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 5.72, rate = 0.0039)
+co2_distr_sa <- data.frame(co2 = seq(400, 3000, .1)) %>% 
+  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 5.72, rate = 0.0039))
 
-x_sa_gamma <- data.frame(cbind(x,y_sa))
-
-x_sa_gamma %>% 
+plot_co2_sa <- co2_distr_sa %>% 
   ggplot(aes(x=x,y=y_sa)) +
   geom_line(color= "red") +
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
-  ggtitle("Modeled distribution (South Africa)") +
+  ggtitle("South Africa") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 0.002)) +
   scale_x_continuous(limits = c(400, 3000))
-
-sa_fit_gamma<- fitdist(x_sa, "gamma") #different fitting function
-plot(sa_fit_gamma) #plots comparison
-
-co2_distr_sa <- data.frame(co2 = seq(400, 3000, .1)) %>% 
-  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 5.7, rate = 0.0039))
 
 sample_co2_sa <- sample(co2_distr_sa$co2, 10000, replace = TRUE, prob = co2_distr_sa$prob) #sample
 sample_f_sa <- tibble(co2 = sample_co2_sa, f = ((co2-C_o)/C_a)/1000000) %>% 
   dplyr::select(-co2)
 
+####histogram / density comparison
+hist(loessData_sa$y, # histogram
+ col="peachpuff", # column color
+ border="black",
+ prob = TRUE, # show densities instead of frequencies
+ xlab = "co2",
+ main = "Data vs Model",
+ breaks = 10, 
+ xlim = c(400, 3000),
+ ylim = c(0,0.001))
+lines(co2_distr_sa, # density plot
+ lwd = 2, # thickness of line
+ col = "chocolate3")
+
 ```
+
+```{r plot}
+
+#ggarrange(plot_co2_ch1, plot_co2_ch2, plot_co2_sa, plot_co2_tz, 
+     #     labels = c("A", "B", "C", "D"),
+      #    ncol = 2, nrow = 2)
+
+```
+
 
 ## Quanta
 
@@ -445,7 +487,7 @@ I'll use the following studies for calculating the meanparameter: <br>
   Nardell (1991) : 1 patients, q: 12.5 <br>
   Andrews (2014) : 571 patients, q: 0.89 <br>
 
-```{r quanta}
+```{r quanta tb}
 
 q <- (1.25*130+8.2*117+12.5+0.89*571)/(130+117+1+571) #weighted mean from different studies
 
@@ -467,11 +509,13 @@ rq_distr <- data.frame(quanta = seq(0, 300, .1)) %>%
 
 rq_distr %>% 
   ggplot(aes(x = quanta, y = prob)) +
-  geom_line() + 
-  ggtitle("Distributon") #Distribution of the quanta model
+  geom_line()+
+  theme_bw() +
+  xlab("Quanta") +
+  ylab("Density")#Distribution of the quanta model
 
 sample_q <- sample(rq_distr$quanta, 10000, replace = TRUE, prob = rq_distr$prob) #sample q for calculation later
-
+sample_q
 tb_sample <- tibble(sample = sample_q) %>% 
   count(sample > 10) %>% 
   mutate(prob = n/10000) #what is the ratio of datapoints over 10?
@@ -492,6 +536,26 @@ ggplot() + geom_density(mapping = aes(thousand_sample), alpha = .2, kernel = "ga
 
 ```
 
+```{r quanta covid}
+## Buonanno et al. provide an estimation for the quanta (like in MCID)
+#"light activity, speaking"
+cov_q <- function(x) {
+  dtrunc(x, spec = "lnorm", a = 0, meanlog = 0.698, sdlog = 0.720)
+}
+
+cov_q_distr <- data.frame(quanta = seq(0, 25, .1)) %>% 
+  mutate(prob = cov_q(quanta))
+
+cov_q_distr %>% 
+  ggplot(aes(x = quanta, y = prob)) +
+  geom_line() + 
+  theme_bw() +
+  ylab("Density") +
+  xlab("Quanta")
+
+sample_q_cov <- sample(cov_q_distr$quanta, 10000, replace = TRUE, prob = cov_q_distr$prob)
+
+```
 ## Rest of the parameters
 
 ```{r parameters}
@@ -500,66 +564,60 @@ n_ch <- 20
 n_sa <- 30 #Powerpoint
 n_tz <- 50 #Powerpoint
 
-#I
+#I tuberculosis
 prev_ch <- 4.14/100000
 #https://www.bag.admin.ch/bag/de/home/zahlen-und-statistiken/zahlen-zu-infektionskrankheiten.exturl.html/aHR0cHM6Ly9tZWxkZXN5c3RlbWUuYmFnYXBwcy5jaC9pbmZyZX/BvcnRpbmcvZGF0ZW5kZXRhaWxzL2QvdHViZXJrdWxvc2UuaHRt/bD93ZWJncmFiPWlnbm9yZQ==.html
-prev_ch_y <- 8.23/100000
 
-age_group <- sum(c(2566719, 2534956, 2351752, 2327273))
-#https://www.statista.com/statistics/1330839/population-of-south-africa-by-age-group-and-gender/
 prev_sa <- 513/100000
-prev_sa_y <- (20000+12000)/age_group # tendenziell zu hoch da 15-25
+# tendenziell zu hoch da 15-25
  #https://worldhealthorg.shinyapps.io/tb_profiles/?_inputs_&entity_type=%22country%22&lan=%22EN%22&iso2=%22ZA%22 von Abbildung abgelesen (kids) 5-14 und 15-24
 # Ansteckungen in Altersgruppe 5-24 durch Population in dieser Altersgruppe (nicht 15-24 genommen, da sonst eher zu hoch weil Inzidenz dann ab 20 stark steigt)
 prev_tz <- 208/100000
 #https://data.worldbank.org/indicator/SH.TBS.INCD?locations=TZ
-prev_tz_y <- 208/100000
-
-#agegroup_tz #https://www.nbs.go.tz/nbs/takwimu/census2012/atlas/POPULATION_AGED_15-24.pdf
 
 I_ch <- prev_ch*n_ch #prevalence per class (per year)
-I_ch_y <- prev_ch_y*n_ch
 I_sa <- prev_sa*n_sa
-I_sa_y <-prev_sa_y*n_sa
 I_tz <- prev_tz*n_tz
-I_tz_y <- prev_tz_y*n_tz
+
+#I Covid
+I_ch_cov <- 0.05*n_ch
+40000/8700000
 
 month <- 8*5*4
-year <- 8*5*4*10
+year <- 8*5*4*12
 ```
 
 ```{r preparing}
 #preparing datasets for plotting
-df_ch1 <- tibble(school = c(rep("school 1", 10000)), f = sample_f_ch1, q = sample_q) %>% 
-  mutate(P_year = 1 - exp(-(f*I_ch*q*year)/n_ch)) %>% 
-  mutate(P_month = 1 - exp(-(f*I_ch*q*month)/n_ch)) %>% 
-  mutate(P_year_y = 1- exp(-(f*I_ch_y*q*year)/n_ch)) %>% 
-  mutate(P_year_one = 1 - exp(-(f*1*q*year)/n_ch)) %>% 
-  mutate(P_month_one = 1 - exp(-(f*1*q*month)/n_ch)) %>% 
+df_ch1 <- tibble(school = c(rep("school 1", 10000)), f = sample_f_ch1, q_tb = sample_q, q_cov = sample_q_cov) %>% 
+  mutate(P_year = 1 - exp(-(f*I_ch*q_tb*year)/n_ch)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*1*q_tb*year)/n_ch)) %>% 
+  mutate(P_month_one_cov = 1 - exp(-(f*1*q_cov*month)/n_ch)) %>% 
+  mutate(P_month_two_cov = 1 - exp(-(f*2*q_cov*month)/n_ch)) %>% 
   mutate(five_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[2]) %>% 
   mutate(ninefive_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[20])
 
-df_ch2 <- tibble(school = c(rep("school 2", 10000)), f = sample_f_ch2, q = sample_q) %>% 
-  mutate(P_year = 1 - exp(-(f*I_ch*q*year)/n_ch)) %>% 
-  mutate(P_month = 1 - exp(-(f*I_ch*q*month)/n_ch)) %>% 
-  mutate(P_year_y = 1- exp(-(f*I_ch_y*q*year)/n_ch)) %>% 
-  mutate(P_year_one = 1 - exp(-(f*1*q*year)/n_ch)) %>% 
+df_ch2 <- tibble(school = c(rep("school 2", 10000)), f = sample_f_ch2, q_tb = sample_q, q_cov = sample_q_cov) %>% 
+  mutate(P_year = 1 - exp(-(f*I_ch*q_tb*year)/n_ch)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*1*q_tb*year)/n_ch)) %>% 
+  mutate(P_month_one_cov = 1 - exp(-(f*1*q_cov*month)/n_ch)) %>% 
+  mutate(P_month_two_cov = 1 - exp(-(f*2*q_cov*month)/n_ch)) %>% 
   mutate(five_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[2]) %>% 
   mutate(ninefive_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[20])
   
-df_tz <- tibble(school = c(rep("tanzania", 10000)), f = sample_f_tz, q = sample_q) %>% 
-  mutate(P_year = 1 - exp(-(f*I_tz*q*year)/n_tz)) %>% 
-  mutate(P_month = 1 - exp(-(f*I_tz*q*month)/n_tz)) %>% 
-  mutate(P_year_y = 1- exp(-(f*I_tz_y*q*year)/n_tz)) %>% 
-  mutate(P_year_one = 1 - exp(-(f*1*q*year)/n_tz)) %>% 
+df_tz <- tibble(school = c(rep("tanzania", 10000)), f = sample_f_tz, q_tb = sample_q, q_cov = sample_q_cov) %>% 
+  mutate(P_year = 1 - exp(-(f*I_tz*q_tb*year)/n_tz)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*1*q_tb*year)/n_tz)) %>% 
+  mutate(P_month_one_cov = 1 - exp(-(f*1*q_cov*month)/n_tz)) %>% 
+  mutate(P_month_two_cov = 1 - exp(-(f*2*q_cov*month)/n_ch)) %>% 
   mutate(five_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[2]) %>% 
   mutate(ninefive_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[20])
 
-df_sa <- tibble(school = c(rep("south africa", 10000)), f = sample_f_sa, q = sample_q) %>% 
-  mutate(P_year = 1 - exp(-(f*I_sa*q*year)/n_sa)) %>% 
-  mutate(P_month = 1 - exp(-(f*I_sa*q*month)/n_sa)) %>% 
-  mutate(P_year_y = 1- exp(-(f*I_sa_y*q*year)/n_sa)) %>% 
-  mutate(P_year_one = 1 - exp(-(f*1*q*year)/n_sa)) %>% 
+df_sa <- tibble(school = c(rep("south africa", 10000)), f = sample_f_sa, q_tb = sample_q, q_cov = sample_q_cov) %>% 
+  mutate(P_year = 1 - exp(-(f*I_sa*q_tb*year)/n_sa)) %>% 
+  mutate(P_year_one = 1 - exp(-(f*1*q_tb*year)/n_sa)) %>% 
+  mutate(P_month_one_cov = 1 - exp(-(f*1*q_cov*month)/n_sa)) %>% 
+  mutate(P_month_two_cov = 1 - exp(-(f*2*q_cov*month)/n_ch)) %>% 
   mutate(five_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[2]) %>% 
   mutate(ninefive_quantil = unname(quantile(P_year$f, probs = seq(0, 1, 1/20)))[20])
 
@@ -571,33 +629,55 @@ df_complet <- bind_rows(df_ch1, df_ch2, df_sa, df_tz)
 ```{r plotting}
 df_complet %>% 
   ggplot(aes(x = school, y=P_year$f))+
-  geom_boxplot(width=0.3, color="black", alpha=0.2, outlier.shape = NA) +
-  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
-  geom_text(aes(x= school, y= ninefive_quantil), label = "95%-Quantil", show.legend = FALSE, size = 2)+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), breaks = c(0,0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1), trans = "sqrt")+
   xlab("Country") + 
-  ylab("Yearly risk of infection")
-
-## prevalence for youth
+  ylab("Yearly risk of infection") +
+  theme_bw() +
+  geom_boxplot(width=0.3, color="black", alpha=0.2, outlier.shape = NA) +
+  geom_point(aes(x=1,y=unname(quantile(df_ch1$P_year$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=2,y=unname(quantile(df_ch2$P_year$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=3,y=unname(quantile(df_sa$P_year$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=4,y=unname(quantile(df_tz$P_year$f, probs = 0.95))),colour="red")
+  
 df_complet %>% 
-  ggplot(aes(x = school, y=P_year_y$f))+
-  geom_boxplot(width=0.3, color="black", alpha=0.2, outlier.shape = NA) +
-  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
-  geom_point(aes(x= school, y= five_quantil), show.legend = FALSE, size = 0.5, shape = 11)+
-  geom_point(aes(x= school, y= ninefive_quantil), show.legend = FALSE, size = 0.5, shape = 11)+
+  ggplot(aes(x = school, y=P_month_one_cov$f))+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), breaks = c(0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1))+
   xlab("Country") + 
-  ylab("Yearly risk of infection")
+  ylab("Monthly risk of infection (one infected person)") +
+  theme_bw() +
+  geom_boxplot(width=0.3, color="black", alpha=0.2, outlier.shape = NA) +
+  geom_point(aes(x=1,y=unname(quantile(df_ch1$P_month_one_cov$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=2,y=unname(quantile(df_ch2$P_month_one_cov$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=3,y=unname(quantile(df_sa$P_month_one_cov$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=4,y=unname(quantile(df_tz$P_month_one_cov$f, probs = 0.95))),colour="red")
+
+df_complet %>% 
+  ggplot(aes(x = school, y=P_month_two_cov$f))+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), breaks = c(0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1))+
+  xlab("Country") + 
+  ylab("Monthly risk of infection (two infected persons)") +
+  theme_bw() +
+  geom_boxplot(width=0.3, color="black", alpha=0.2, outlier.shape = NA) +
+  geom_point(aes(x=1,y=unname(quantile(df_ch1$P_month_two_cov$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=2,y=unname(quantile(df_ch2$P_month_two_cov$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=3,y=unname(quantile(df_sa$P_month_two_cov$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=4,y=unname(quantile(df_tz$P_month_two_cov$f, probs = 0.95))),colour="red")
 
 ```
 
 Now I will compare the risks of infection, assuming that the prevalence is the same for every country and also assuming that the class size is the same. The prevalence per country is not used. This is to highlight the influence of air quality.
 
 ```{r same incidence}
-
 df_complet %>% 
-  ggplot(aes(x = school, y=P_year_one$f, colour = school)) +  
-  geom_boxplot(width=0.3, color="black", alpha=0.2) +
-  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+ ggplot(aes(x = school, y=P_year_one$f))+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), breaks = c(0,0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1), trans = "exp")+
   xlab("Country") + 
-  ylab("Yearly risk of infection")
+  ylab("Yearly risk of infection") +
+  theme_bw() +
+  geom_boxplot(width=0.3, color="black", alpha=0.2, outlier.shape = NA) +
+  geom_point(aes(x=1,y=unname(quantile(df_ch1$P_year_one$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=2,y=unname(quantile(df_ch2$P_year_one$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=3,y=unname(quantile(df_sa$P_year_one$f, probs = 0.95))),colour="red") +
+  geom_point(aes(x=4,y=unname(quantile(df_tz$P_year_one$f, probs = 0.95))),colour="red")
 
 ```

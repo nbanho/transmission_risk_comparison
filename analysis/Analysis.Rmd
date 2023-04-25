@@ -44,6 +44,9 @@ library(ggpattern)
 library(gridExtra)
 library(GGally)
 library(cowplot)
+library(vcd)
+library(boot)
+library(magrittr)
 
 
 text_size = 8
@@ -61,48 +64,33 @@ theme_bw2 <- function () {
 ## Data import
 
 ```{r data import}
-ch <- readRDS("data-clean/palas.rds")
-ch_old <- readRDS("data-clean/co2-ch.rds") #swiss data
-satz <- readRDS("data-clean/co2-sa-tz.rds")
-prevalence <- read_csv("data-clean/WHO-COVID-19-global-data.csv", col_types = cols(
-                   Country_code = col_character(),
-                   Country = col_character(),
-                   WHO_region = col_character(),
-                   New_cases = col_double(),
-                   Cumulative_cases = col_double(),
-                   New_deaths = col_double(),
-                   Cumulative_deaths = col_double(),
-                   Date_reported = col_date(format = "%Y-%m-%d")
-                 ))
+ch <- readRDS("../data-clean/palas.rds")
+ch_old <- readRDS("../data-clean/co2-ch.rds") #swiss data
+satz <- readRDS("../data-clean/co2-sa-tz.rds")
 
-prevalence <- prevalence %>% 
-  filter(Date_reported >= as.Date("2020-03-01") & Date_reported <= as.Date("2022-12-31")) 
+chch <- readRDS("../data-clean/palas.rds")
 
-ch <- ch %>%
+ch <- ch %>% 
   rename(co2 = CO2) %>% 
-  filter(co2 > 400) %>% 
-  filter(co2 < 4000) %>% 
-  arrange(co2)
-  
-
-ch1 <- ch_old %>% 
-  filter(school == "School 1") 
-
-ch2 <- ch_old %>% 
-  filter(school == "School 2")
+  filter(co2 < 4000) %>% #we assume these are outliers (measurement error)
+  mutate(co2 = ifelse(co2 < 400, 400, co2)) %>% #replace co2 values less than 400 with 400
+  mutate(time_posix = strptime(time, format = "%H:%M")) %>% #change format
+  mutate(time_h = hour(time_posix)) %>% #extract hours
+  filter(time_h >= 8 & time_h <= 17) %>% #filter hours when pupils ar present
+  arrange(co2) #arrange by co2 for later
 
 sa <- satz %>% 
   filter(country == "South Africa") %>% 
-  filter(co2 < 4000) %>% 
-  filter(co2 > 400) %>% 
-  arrange(co2)#south africa data
+  filter(co2 < 4000) %>% #we assume these are outliers (measurement error)
+  mutate(co2 = ifelse(co2 < 400, 400, co2)) %>% #replace co2 values less than 400 with 400
+  arrange(co2)
 
 tz <- satz %>% 
   filter(country == "Tanzania") %>% 
-  filter(co2 < 4000) %>%
-  filter(co2 > 400) %>% 
-  mutate(time_h = hour(date)) %>% 
-  filter(time_h >= 8) %>% 
+  filter(co2 < 4000) %>% #we assume these are outliers (measurement error)
+  mutate(co2 = ifelse(co2 < 400, 400, co2)) %>% #replace co2 values less than 400 with 400
+  mutate(time_h = hour(date)) %>% #extract hour
+  filter(time_h >= 8) %>% #filter time when pupils are present (info from Lukas)
   arrange(co2) #tanzania data
 ```
 ## Methods
@@ -127,9 +115,8 @@ Indoor Co2 concentration \
 ## Preprocess
 
 ```{r preprocess}
-ch_hourly <- ch_old %>%
-  mutate(time_h = hour(time)) %>%
-  group_by(school, time_h) %>%
+ch_hourly <- ch %>%
+  group_by(time_h) %>% #to analyze each hour seperately
   summarize(mean = mean(co2),
             lower = quantile(co2, 0.25),
             upper = quantile(co2, 0.75),
@@ -137,15 +124,14 @@ ch_hourly <- ch_old %>%
   ungroup()
 
 ch_hourly %>%
-  ggplot(aes(x = time_h, y = n_data, fill = school)) +
+  ggplot(aes(x = time_h, y = n_data)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   xlab("Daytime (h)") +
   ylab("number of measurements") +
   theme_bw() +
-  theme(legend.position = c(0.9,0.9), legend.title = element_blank()) +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())+
   scale_color_brewer(palette = "Set2") +
-  scale_fill_brewer(palette = "Set2")
-# there is a reasonable number of data points per hour but missing data at hour 12 for school 2 (no lessons)
+  scale_fill_brewer(palette = "Set2")#there are sufficent measurements altrough the day (this information will not be used directly, just to secure that the data is good)
 
 tz_hourly <- tz %>%
   mutate(time_h = hour(date)) %>%
@@ -164,7 +150,8 @@ tz_hourly %>%
   theme_bw() +
   theme(legend.position = c(0.9,0.9), legend.title = element_blank())
 
-# data is measured throughout the day in south africa
+# data is measured throughout the day in south africa, there is no information about which time the measurement was taken
+# This is the reason, we won't use this information, as we don't have it for all three countries
 
 ```
 
@@ -174,7 +161,7 @@ tz_hourly %>%
 
 ```{r}
 ch_hourly %>% #plot co2 during the day (ch)
-  ggplot(aes(x = time_h, group = school, color = school)) +
+  ggplot(aes(x = time_h)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position =    position_dodge2(width = .2)) +
   geom_point(aes(y = mean), position = position_dodge2(width = .2)) +
   scale_color_brewer(palette = "Set2") +
@@ -193,96 +180,33 @@ tz_hourly %>% #plot co2 during the day (tz)
   theme_bw2() +
   theme(legend.position = c(0.9,0.9), legend.title = element_blank()) 
 
+#these plots show how the co2 concentration (mean, lower and upper quantil) changes during a day.
 #no time data available for south africa
 ```
 
 ### Smoothing Data
 
 ```{r smoothing}
-# CH
-## together old dataset
+# Switzerland
 set.seed(1343)
-
-dat_ch_old <- data.frame(
-  x = 1:length(ch_old$co2),
-  y = ch_old$co2
-)
-
-loessData_ch_old <- data.frame(
-  x = 1:length(ch_old$co2),
-  y = predict(loess(y~x, dat_ch_old, span = 0.1)),
-  method = "loess()"
-) %>% 
-  mutate(school = "Switzerland")
-
-ggplot(loessData_ch_old, aes(x, y)) + 
-  geom_point(dat = dat_ch_old, aes(x, y), alpha = 0.2, col = "red") +
-  geom_line(col = "blue") +
-  facet_wrap(~method) +
-  theme_bw(16)
-
-## new dataset
 
 dat_ch <- data.frame(
   x = 1:length(ch$co2),
   y = ch$co2
-)
+)#preparing dataset for Loess method
 
 loessData_ch <- data.frame(
   x = 1:length(ch$co2),
   y = predict(loess(y~x, dat_ch, span = 0.1)),
   method = "loess()"
 ) %>% 
-  mutate(school = "Switzerland")
+  mutate(school = "Switzerland") #smooting the data using Loess
 
 ggplot(loessData_ch, aes(x, y)) + 
   geom_point(dat = dat_ch, aes(x, y), alpha = 0.2, col = "red") +
   geom_line(col = "blue") +
   facet_wrap(~method) +
   theme_bw(16)
-
-
-##school 1
-set.seed(1)
-
-dat_ch1 <- data.frame(
-  x = 1:length(ch1$co2),
-  y = ch1$co2
-)
-
-loessData_ch1 <- data.frame(
-  x = 1:length(ch1$co2),
-  y = predict(loess(y~x, dat_ch1, span = 0.1)),
-  method = "loess()"
-) %>% 
-  mutate(school = "school 1")
-
-ggplot(loessData_ch1, aes(x, y)) + 
-  geom_point(dat = dat_ch1, aes(x, y), alpha = 0.2, col = "red") +
-  geom_line(col = "blue") +
-  facet_wrap(~method) +
-  theme_bw(16)
-
-##school 2
-dat_ch2 <- data.frame(
-  x = 1:length(ch2$co2),
-  y = ch2$co2
-)
-
-loessData_ch2 <- data.frame(
-  x = 1:length(ch2$co2),
-  y = predict(loess(y~x, dat_ch2, span = 0.3)),
-  method = "loess()"
-) %>% 
-  mutate(school = "school 2")
-
-ggplot(loessData_ch2, aes(x, y)) + 
-  geom_point(dat = dat_ch2, aes(x, y), alpha = 0.2, col = "red") +
-  geom_line(col = "blue") +
-  facet_wrap(~method) +
-  theme_bw(16)
-
-loessData_ch <- rbind(loessData_ch1,loessData_ch2)
 
 # TZ
 dat_tz <- data.frame(
@@ -338,19 +262,6 @@ loessData_ch %>% #density plot ch
   theme(legend.position = c(0.9,0.9), legend.title = element_blank()) +
   ggtitle("Probability distribution of observed Co2-values (Switzerland)")
 
-loessData_ch_old %>% #density plot ch
-  ggplot(aes(x = y)) +
-  geom_density(alpha = .2, kernel = "gaussian", adjust = 3) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_color_brewer(palette = "Set2") +
-  scale_fill_brewer(palette = "Set2") +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05)),limits = c(0, 0.004)) +
-  scale_x_continuous(limits = c(400, 3000)) +
-  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
-  theme_bw2() +
-  theme(legend.position = c(0.9,0.9), legend.title = element_blank()) +
-  ggtitle("Probability distribution of observed Co2-values (Switzerland)")
-
 loessData_sa %>% #density plot sa smooth
   ggplot(aes(x = y)) +
   geom_density(alpha = .2, kernel = "gaussian", adjust = 4, fill = "darkseagreen3") +
@@ -375,7 +286,6 @@ loessData_tz %>% #density plot tz smooth
   theme_bw2() +
   theme(legend.position = c(0.9,0.9), legend.title = element_blank()) 
 ```
-
 ### Modeling distribution for co2 and other CO2 parameters
 
 ```{r parameters for calculating f}
@@ -389,21 +299,21 @@ C_o <- 400 #p.p.m (taking a higher estimate because higher values ar possible wh
 ```
 
 ```{r ditribution for co2 ch1}
-
-#Switzerland new 
+#Switzerland 
 x_ch <- loessData_ch %>% 
-  pull(y) 
+  pull(y) #I now use the smoothed co2 data to fit a gamma distribution
 
 descdist(x_ch, discrete = FALSE) #gamma distribution fits well
 fitdistr(x_ch, "gamma") #get parameters for the gamma distribution
 
 x <- seq(400, 4000, by = .1) #vector for the plot
+
 co2_distr_ch <- data.frame(co2 = seq(400, 4000, .1)) %>% 
-  mutate(prob = dtrunc(co2, spec = "gamma", a = 400, b = 4000, shape = 4.783, rate = 0.0044)) %>%
+  mutate(prob = dtrunc(co2, spec = "gamma", a = 400, b = 4000, shape = 4.751, rate = 0.0037)) %>%
   mutate(country = "Switzerland")
 
 co2_distr_ch %>% #plot for the fitted distribution (not used in the final paper)
-  ggplot(aes(x=x,y=prob)) +
+  ggplot(aes(x=co2,y=prob)) +
   geom_line(color= "red") +
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
   theme_bw() +
@@ -414,133 +324,21 @@ sample_co2_ch <- sample(co2_distr_ch$co2, 3000, replace = TRUE, prob = co2_distr
 sample_f_ch <- tibble(co2 = sample_co2_ch, f = ((co2-C_o)/C_a)/1000000) %>% #sample f for dataframe later
   dplyr::select(-co2)
 
-
-#Switzerland old
-x_ch_old <- ch_old %>% 
-  pull(co2)
-
-descdist(x_ch_old, discrete = FALSE) #gamma distribution fits well
-fitdistr(x_ch_old, "normal") #get parameters for the gamma distribution
-
-co2_distr_ch_old <- data.frame(co2 = seq(400, 4000, .1)) %>% 
-  mutate(prob = dtrunc(co2, spec = "norm", a = 400, b = 4000, mean = 1067, sd = 376)) %>%
-  mutate(country = "Switzerland")
-
-co2_distr_ch_old %>% #plot for the fitted distribution (not used in the final paper)
-  ggplot(aes(x=x,y=prob)) +
-  geom_line(color= "red") +
-  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
-  theme_bw2() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 0.004))  +
-  scale_x_continuous(limits = c(400, 4000))
-
-sample_co2_ch_old <- sample(co2_distr_ch$co2, 3000, replace = TRUE, prob = co2_distr_ch$prob) #sample co2 for dataframe later
-sample_f_ch_old <- tibble(co2 = sample_co2_ch, f = ((co2-C_o)/C_a)/1000000) %>% #sample f for dataframe later
-  dplyr::select(-co2)
-
-####histogram / density comparison (plot in supplements) OLD
-hist(loessData_ch_old$y, # histogram
- col="#FFA07A", # column color
- border="black",
- prob = TRUE, # show densities instead of frequencies
- xlab = expression(CO[2]*" (ppm)"),
- main = "",
- breaks = 7,
- xlim = c(400,2500),
- ylim = c(0,0.0015))
-lines(co2_distr_ch_old, # density plot
- lwd = 2, # thickness of line
- col = "black")
-
-### NEW
-plot_co2_ch <- ch %>% 
-  ggplot(aes(x = co2)) +
+### Plot for paper
+plot_co2_ch <- loessData_ch %>% 
+  ggplot(aes(x = y)) +
   geom_histogram(binwidth = 100, color = "black", fill = "#FFA07A",  aes(y = ..density..)) +
   scale_y_continuous(limits = c(0, 0.0012), expand = c(0,0)) +
   scale_x_continuous(limits = c(400, 4000), expand = c(0,0), labels = scales::comma) +
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
   coord_cartesian(xlim = c(400,3500))+
   theme_bw2()+ 
-  stat_function(fun = function(x) dtrunc(x, spec = "norm", a = 400, b = 4000, mean = 800, sd = 600), size = 1) +
+  stat_function(fun = function(x) dtrunc(x, spec = "gamma", a = 400, b = 4000, shape = 4.751, rate = 0.0037), size = 1) +
   ggtitle("Switzerland") +
   theme(plot.title = element_text(hjust = 0.5))
 
 plot_co2_ch
 ```
-
-```{r distribution for co2 ch1}
-#school1
-x_ch1 <- ch_old %>% 
-  filter(school == "School 1") %>% 
-  pull(co2)
-
-descdist(x_ch1, discrete = FALSE) #normal distribution fits well
-fitdistr(x_ch1, "gamma") #get parameters
-
-co2_distr_ch1 <- data.frame(co2 = seq(400, 3000, .1)) %>% 
-  mutate(prob = dtrunc(co2, spec = "gamma", a = 400, b = 3000, shape = 15.5, rate = 0.017)) %>%
-  mutate(country = "Switzerland 1")
-
-sample_co2_ch1 <- sample(co2_distr_ch1$co2, 3000, replace = TRUE, prob = co2_distr_ch1$prob) #sample co2 sample f
-sample_f_ch1 <- tibble(co2 = sample_co2_ch1, f = ((co2-C_o)/C_a)/1000000) %>% #sample f for df_ch1
-  dplyr::select(-co2)
-
-####histogram / density comparison
-hist(loessData_ch1$y, # histogram
- col="peachpuff", # column color
- border="black",
- prob = TRUE, # show densities instead of frequencies
- xlab = expression(CO[2]*" (ppm)"),
- main = "",
- breaks = 7,
- xlim = c(400,1800),
- ylim = c(0,0.002))
-lines(co2_distr_ch1, # density plot
- lwd = 2, # thickness of line
- col = "chocolate3")
-
-```
-
-```{r distribution for co2 ch2}
-#school 2
-x_ch2 <- loessData_ch2 %>% 
-  pull(y) #pull filtered data
-
-descdist(x_ch2, discrete = FALSE) #gamma fits ok 
-fitdistr(x_ch2, "gamma") #get parameters
-
-co2_distr_ch2 <- data.frame(co2 = seq(400, 3000, .1)) %>% #create data frame
-  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 3000, shape = 6.55, rate = 0.006)) %>% 
-  mutate(country = "Switzerland 2")
-#7.4
-co2_distr_ch2 %>% #plots density
-  ggplot(aes(x=x,y=prob)) +
-  geom_line(color= "red") +
-  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
-  theme_bw2() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 0.004))  +
-  scale_x_continuous(limits = c(400, 3000))
-
-sample_co2_ch2 <- sample(co2_distr_ch2$co2, 3000, replace = TRUE, prob = co2_distr_ch2$prob) #sample
-sample_f_ch2 <- tibble(co2 = sample_co2_ch2, f = ((co2-C_o)/C_a)/1000000) %>%  #sample f for df_ch2
-  dplyr::select(-co2)
-
-####histogram / density comparison
-hist(loessData_ch2$y, # histogram
- col="peachpuff", # column color
- border="black",
- prob = TRUE, # show densities instead of frequencies
- xlab = expression(CO[2]*" (ppm)"),
- main = "",
- breaks = 7,
- xlim = c(400,2500),
- ylim = c(0,0.0012))
-lines(co2_distr_ch2, # density plot
- lwd = 2, # thickness of line
- col = "chocolate3")
-
-```
-
 ```{r distribution for co2 tz}
 #tanzania
 x_tz <- loessData_tz %>% 
@@ -568,8 +366,8 @@ sample_f_tz <- tibble(co2 = sample_co2_tz, f = ((co2-C_o)/C_a)/1000000) %>% #sam
   dplyr::select(-co2)
 
 ####histogram / density comparison (plot in supplements)
-plot_co2_tz <- tz %>% 
-  ggplot(aes(x = co2)) +
+plot_co2_tz <- loessData_tz %>% 
+  ggplot(aes(x = y)) +
   geom_histogram(binwidth = 100, color = "black", fill = "#FFDEAD", aes(y = ..density..)) +
   scale_y_continuous(limits = c(0, 0.006), expand = c(0,0)) +
   scale_x_continuous(limits = c(400, 4000), expand = c(0,0), labels = scales::comma) +
@@ -592,9 +390,11 @@ x_sa <- as.numeric(x_sa)
 
 descdist(x_sa, discrete = FALSE) #normal/gamma fits ok -> after comparison --> gamma is better
 fitdistr(x_sa, "gamma") #get parameters
+fitdistr(x_sa, "weibull") #get parameters
+fitdistr(x_sa, "lognormal") #get parameters
 
 co2_distr_sa <- data.frame(co2 = seq(400, 4000, .1)) %>% 
-  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 4000, shape = 5.72, rate = 0.0039)) %>% 
+  mutate(prob = dtrunc(x, spec = "gamma", a = 400, b = 4000, shape =4.38 , rate = 0.0028)) %>% 
   mutate(country = "South Africa")
 
 co2_distr_sa %>% 
@@ -612,26 +412,27 @@ sample_f_sa <- tibble(co2 = sample_co2_sa, f = ((co2-C_o)/C_a)/1000000) %>% #sam
 
 #plot
 
-plot_co2_sa <- sa %>% 
-  ggplot(aes(x = co2)) +
+plot_co2_sa <- loessData_sa %>% 
+  ggplot(aes(x = y)) +
   geom_histogram(binwidth = 100, color = "black", fill = "#B0C4DE", aes(y = ..density..)) +
   scale_y_continuous(limits = c(0, 0.001), expand = c(0,0)) +
   scale_x_continuous(limits = c(400, 4000), expand = c(0,0), labels = scales::comma) +
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
   coord_cartesian(xlim = c(400,3500))+
   theme_bw2()+
-  stat_function(fun = function(x) dtrunc(x, spec = "gamma", a = 400, b = 4000, shape = 5.72, rate = 0.0039), size = 1) +
+  stat_function(fun = function(x) dtrunc(x, spec = "lnorm", a = 400, b = 4000, meanlog = 7.23, sdlog = 0.499), size = 1) +
   ggtitle("South Africa") +
   theme(plot.title = element_text(hjust = 0.5))
 
+plot_co2_sa
 ```
 
 ```{r plot co2, cache = FALSE}
 #Plot for the paper
 
-co2_data <- rbind(co2_distr_ch,co2_distr_sa,co2_distr_tz)
+co2_data <- rbind(co2_distr_sa,co2_distr_ch,co2_distr_tz)
 
-co2_data %>% 
+co2_data %>% #Comparison of distributions
   ggplot(aes(x=co2, y = prob, color = country)) +
   geom_line(size = 1.5) +
   labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
@@ -644,7 +445,7 @@ text_size = 8
 
 #Plot for supplements
 
-plot_grid(plot_co2_ch,plot_co2_tz,plot_co2_sa, ncol = 2) #plot in the paper
+plot_grid(plot_co2_sa,plot_co2_ch,plot_co2_tz, ncol = 2) #plot in the paper
 
 ```
 
@@ -681,7 +482,7 @@ dq <- function(x) {
 #dataframe, with density for each "point" --> mathematicaly not perfect but okay for the plot
 rq_distr <- data.frame(quanta = seq(0, 300, .01)) %>% 
   mutate(prob = dq(quanta)) %>% 
-  mutate(type = "TB")
+  mutate(type = "Mtb")
 
 rq_distr %>% #plot for quanta distribtution
   ggplot(aes(x = quanta, y = prob)) +
@@ -720,7 +521,7 @@ cov_q <- function(x) {
 
 cov_q_distr <- data.frame(quanta = seq(0, 250, .1)) %>% #density for each datapoint (mathematically not perfect but sufficent for plot)
   mutate(prob = cov_q(quanta)) %>% 
-  mutate(type = "SARS")
+  mutate(type = "SARS-CoV-2")
 
 cov_q_distr %>% #plot of the distribution 
   ggplot(aes(x = quanta, y = prob)) +
@@ -733,7 +534,7 @@ sample_q_cov <- sample(cov_q_distr$quanta, 3000, replace = TRUE, prob = cov_q_di
 
 ```
 
-```{r plot Quanta}
+```{r plot Quanta, cache=FALSE}
 q_data <- rbind(rq_distr,cov_q_distr)
 
 #calculate expected value to integrate in the plot
@@ -781,140 +582,92 @@ month <- 7*5*4
 year <- 7*5*4*10
 
 #I tuberculosis
-prev_ch <- 4.1/100000
+inc_ch <- 4.1/100000
 #https://www.bag.admin.ch/bag/de/home/zahlen-und-statistiken/zahlen-zu-infektionskrankheiten.exturl.html/aHR0cHM6Ly9tZWxkZXN5c3RlbWUuYmFnYXBwcy5jaC9pbmZyZX/BvcnRpbmcvZGF0ZW5kZXRhaWxzL2QvdHViZXJrdWxvc2UuaHRt/bD93ZWJncmFiPWlnbm9yZQ==.html
 
-prev_sa <- 513/100000
+inc_sa <- 513/100000
 # tendenziell zu hoch da 15-25
  #https://worldhealthorg.shinyapps.io/tb_profiles/?_inputs_&entity_type=%22country%22&lan=%22EN%22&iso2=%22ZA%22 von Abbildung abgelesen (kids) 
-prev_tz <- 208/100000
+inc_tz <- 208/100000
 #https://data.worldbank.org/indicator/SH.TBS.INCD?locations=TZ
 
-I_ch <- prev_ch*n_ch #prevalence per class (per year)
-I_sa <- prev_sa*n_sa
-I_tz <- prev_tz*n_tz
+I_ch <- inc_ch*n_ch #prevalence per class (per year)
+I_sa <- inc_sa*n_sa
+I_tz <- inc_tz*n_tz
 
 # Fixing prevalence for the second analysis
-I_ch_fix <- prev_sa*n_ch
-I_sa_fix <- prev_sa*n_sa
-I_tz_fix <- prev_sa*n_tz
+I_ch_fix <- inc_sa*n_ch
+I_sa_fix <- inc_sa*n_sa
+I_tz_fix <- inc_sa*n_tz
 
 # I SARS 
-prevalence_ch <- prevalence %>% 
-  filter(Country == "Switzerland") %>% 
-   group_by(week = floor_date(Date_reported, "week")) %>% 
-              summarise(New_cases = sum(New_cases)) %>% 
-  summarise(low = quantile(New_cases, probs = 0.10), medium = quantile(New_cases, probs = 0.5), high = quantile(New_cases, probs = 0.90))
-  
-prevalence_sa <- prevalence %>% 
-  filter(Country == "South Africa") %>% 
-   group_by(week = floor_date(Date_reported, "week")) %>% 
-              summarise(New_cases = sum(New_cases)) %>% 
-   summarise(low = quantile(New_cases, probs = 0.10), medium = quantile(New_cases, probs = 0.5), high = quantile(New_cases, probs = 0.90))
+## SARS Estimate based on excess mortality
 
-I_ch_high <- unname(prevalence_ch$high/8654622)*n_ch
-I_sa_high <- unname(prevalence_sa$high/59308690)*n_sa
-I_tz_high <- unname(prevalence_sa$high/59308690)*n_tz
-##high estimation
-#I_ch_high <- (248788/8654622)*n_ch #https://covid19.who.int/region/euro/country/ch
-#I_sa_high <- (162987/59308690)*n_sa
-#I_tz_high <- (162987/59308690)*n_tz
-
-#https://www.worldometers.info/world-population/population-by-country/ for the population
-
-#medium estimation
-#I_ch_medium <- (126868/8654622)*n_ch
-#I_sa_medium <- (93978/59308690)*n_sa
-#I_tz_medium <- (93978/59308690)*n_tz
-
-I_ch_medium <- unname(prevalence_ch$medium/8654622)*n_ch
-I_sa_medium<- unname(prevalence_sa$medium/59308690)*n_sa
-I_tz_medium <- unname(prevalence_sa$medium/59308690)*n_tz
-
-#low estimation
-#I_ch_low <- (60000/8654622)*n_ch
-#I_sa_low <- (45000/59308690)*n_sa
-#I_tz_low <- (45000/59308690)*n_tz
-
-I_ch_low <- unname(prevalence_ch$low/8654622)*n_ch
-I_sa_low <- unname(prevalence_sa$low/59308690)*n_sa
-I_tz_low <- unname(prevalence_sa$low/59308690)*n_tz
-
-#fixed estimation (south africa)
-I_ch_cov_fix <- unname(prevalence_sa$high/59308690)*n_ch
-I_sa_cov_fix <- unname(prevalence_sa$high/59308690)*n_sa
-I_tz_cov_fix <- unname(prevalence_sa$high/59308690)*n_tz
-
-### SARS Estimate based on excess mortality
-
-excess <- read.csv("data-raw/excess.CSV")  #https://ghdx.healthdata.org/record/ihme-data/covid_19_excess_mortality
+excess <- read.csv("../data-raw/excess.CSV")  #https://ghdx.healthdata.org/record/ihme-data/covid_19_excess_mortality
 IFR <- 0.0068 #IFR: https://doi.org/10.1016/j.ijid.2020.09.1464
+IFR_SD <- (0.0082-0.0053)/3.92 #https://handbook-5-1.cochrane.org/chapter_7/7_7_7_2_obtaining_standard_errors_from_confidence_intervals_and.htm
+sim_IFR <- rnorm(3000, IFR, IFR_SD)#I estimate a normal distribution from the published IFR which accounts for variance
 
 excess_mortality <- excess %>% 
   filter(location_name %in% c("Switzerland", "Tanzania", "South Africa")) %>%  
   rename(country = location_name) %>%
-  filter(measure_name %in% c("excess_death_rate")) %>% 
-  mutate(excess_weekly = mean_value/104) %>%  #excess mortality weekly
-  mutate(lower_ci_weekly = lower_ci/104) %>% #lower bound
-  mutate(upper_ci_weekly = upper_ci/104) #upper bound
-  #mutate(cases_weekly = excess_weekly/IFR) %>% # excess mortality/IFR
-  #mutate(cases_lower = lower_ci_weekly/IFR) %>% #lower bound
-  #mutate(cases_upper = upper_ci_weekly/IFR) %>% #upper bound
-  #mutate(SD = (cases_upper-cases_lower)/3.92)
+  filter(measure_name %in% c("excess_death_rate")) 
    #https://handbook-5-1.cochrane.org/chapter_7/7_7_3_3_obtaining_standard_deviations_from_standard_errors.htm
   
+#Switzerland
+mean_ex_ch <- excess_mortality[excess_mortality$country == "Switzerland", "mean_value"]
+sd_ex_ch <- (excess_mortality[excess_mortality$country == "Switzerland", "upper_ci"]-excess_mortality[excess_mortality$country == "Switzerland", "lower_ci"])/3.92
+
+sim_excess_ch <- rnorm(3000, mean_ex_ch, sd_ex_ch) #form a normal distribution from the data for simulation
+
+#Tanzania
+mean_ex_tz <- excess_mortality[excess_mortality$country == "Tanzania", "mean_value"]
+sd_ex_tz <- (excess_mortality[excess_mortality$country == "Tanzania", "upper_ci"]-excess_mortality[excess_mortality$country == "Tanzania", "lower_ci"])/3.92
+
+sim_excess_tz <- rnorm(3000, mean_ex_tz, sd_ex_tz)
+
+#South Africa
+mean_ex_sa <- excess_mortality[excess_mortality$country == "South Africa", "mean_value"]
+sd_ex_sa <- (excess_mortality[excess_mortality$country == "South Africa", "upper_ci"]-excess_mortality[excess_mortality$country == "South Africa", "lower_ci"])/3.92
+
+sim_excess_sa <- rnorm(3000, mean_ex_sa, sd_ex_sa)
+
 sim_excess <- excess_mortality %>%
   slice(rep(1:n(), each = 3000)) %>% 
-  mutate(excess_weekly = excess_weekly/IFR) %>% 
-  mutate(sim_excess = rpois(n(), lambda = excess_weekly)) #i use IFR before the simulation to retain some variability, if not, i would just get values 0,100,200,300 ect. because poisson gives discrete output values.
+  mutate(IFR = rep(sim_IFR,3)) %>% 
+  mutate(Excess_total = c(sim_excess_ch,sim_excess_tz,sim_excess_sa)) %>% #per 100,000
+  mutate(Infected_total = Excess_total/IFR) %>% #per 100,000
+  mutate(Infected_week = Infected_total/104)
+  #i use IFR before the simulation to retain some variability, if not, i would just get values 0,100,200,300 ect. because poisson gives discrete output values.
 
 I_covEX_ch <- sim_excess %>% 
   filter(country == "Switzerland") %>% 
-  mutate(I = sim_excess/100000*n_ch)
+  mutate(I = Infected_week/100000*n_ch) 
+
+median(I_covEX_ch_fix$I)
+quantile(I_covEX_tz_fix$I, c(0.25,0.75))
 
 I_covEX_tz <- sim_excess %>% 
   filter(country == "Tanzania") %>% 
-  mutate(I = sim_excess/100000*n_tz)
+  mutate(I = Infected_week/100000*n_tz)
 
 I_covEX_sa <- sim_excess %>% 
   filter(country == "South Africa") %>% 
-  mutate(I = sim_excess/100000*n_sa)
+  mutate(I = Infected_week/100000*n_sa)
 
-```
+##fixed on South Africa level
+I_covEX_ch_fix <- sim_excess %>% 
+  filter(country == "South Africa") %>% 
+  mutate(I = Infected_week/100000*n_ch)
 
-```{r plot other parameters}
-#I plot is not necessary
-I_data <- tibble(country= c(rep(c("Switzerland", "South Africa", "Tanzania"), 4)), I = c(I_ch,I_sa,I_tz, I_ch_high, I_sa_high, I_tz_high, I_ch_medium, I_sa_medium, I_tz_medium, I_ch_low, I_sa_low, I_tz_low), type = c("TB", "TB", "TB", "SARS (high)", "SARS (high)", "SARS (high)", "SARS (medium)", "SARS (medium)", "SARS (medium)", "SARS (low)", "SARS (low)", "SARS (low)" ))
+I_covEX_tz_fix <- sim_excess %>% 
+  filter(country == "South Africa") %>% 
+  mutate(I = Infected_week/100000*n_tz)
 
-I_data$type <- factor(I_data$type,
-                      levels = c("TB", "SARS (high)", "SARS (medium)", "SARS (low)"))
+I_covEX_sa_fix <- sim_excess %>% 
+  filter(country == "South Africa") %>% 
+  mutate(I = Infected_week/100000*n_sa)
 
-I_data %>% 
-  group_by (country, type)%>%
-  ggplot +
-  geom_col(aes(x=country, y= I, fill=type, color = country), position = position_dodge(1))+
-  theme_bw()+
-  theme(axis.title.x = element_blank())+
-  labs(y = "Infectious persons per class") +
-  scale_fill_brewer(palette = "pastel", name = NULL) +
-  scale_color_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  guides(color = "none")
-  
-# plotting n 
-
-n_data <- tibble(country = c("Switzerland", "South Africa", "Tanzania"), n = c(n_ch, n_sa, n_tz)) 
-
-n_data %>% 
-  ggplot +
-  geom_col(aes(x=country, y= n, fill = country), position = position_dodge(1), width = 0.5)+ 
-  theme_bw2()+
-  theme(legend.position = "none")+
-  theme(axis.title.x = element_blank()) +
-  labs(y = "Class size") +
-  scale_fill_discrete(name=NULL) +
-  scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD"))
-
-#https://coronavirus.jhu.edu/data/mortality
 ```
 
 ```{r ACH and f}
@@ -923,7 +676,7 @@ n_data %>%
 Vol_ch <- 233000
 
 ACH_ch <- ch %>% 
-  filter(co2 > 405) %>% 
+  filter(co2 >= 405) %>% 
   mutate(Q = (0.13*38000)/(co2-400)) %>% 
   mutate(ACH = (3600*Q*n_ch)/Vol_ch) %>% 
   summarise(mean=mean(ACH), sd=sd(ACH), median = median(ACH), lower = quantile(ACH, probs = 0.25), upper = quantile(ACH, probs = 0.75)) 
@@ -937,10 +690,11 @@ f_ch <- ch %>%
 Vol_sa <- 180000
 
 ACH_sa <- sa %>% 
-  filter(co2 > 405) %>% 
+  filter(co2 >= 401) %>% 
   mutate(Q = (0.13*38000)/(co2-400)) %>% 
   mutate(ACH = (3600*Q*n_sa)/Vol_sa) %>% 
    summarise(mean=mean(ACH), sd=sd(ACH), median = median(ACH), lower = quantile(ACH, probs = 0.25), upper = quantile(ACH, probs = 0.75)) 
+
 ##f
 f_sa <- sa %>% 
   mutate(f = ((co2-C_o)/C_a)/1000000) %>% 
@@ -951,7 +705,7 @@ f_sa <- sa %>%
 Vol_tz <- 162000
 
 ACH_tz <- tz %>% 
-  filter(co2 > 405) %>% 
+  filter(co2 >= 401) %>% 
   mutate(Q = (0.13*38000)/(co2-400)) %>% 
   mutate(ACH = (3600*Q*n_sa)/Vol_tz) %>% 
  summarise(mean=mean(ACH), sd=sd(ACH), median = median(ACH), lower = quantile(ACH, probs = 0.25), upper = quantile(ACH, probs = 0.75)) 
@@ -960,8 +714,6 @@ ACH_tz <- tz %>%
 f_tz <- tz %>% 
   mutate(f = ((co2-C_o)/C_a)/1000000) %>% 
   summarise(mean=mean(f), sd=sd(f), median = median(f), lower = quantile(f, probs = 0.25), upper = quantile(f, probs = 0.75)) 
-
-n_distinct(ch$date)
 ```
 
 ```{r results co2}
@@ -980,7 +732,6 @@ tz %>%
 ```{r preparing}
 #preparing datasets for plotting
 #Switzerland
-
 df_ch_TB <- tibble(school = c(rep("Switzerland", 3000)), f = sample_f_ch, q_tb = sample_q) %>% 
   mutate("Prevalence" = 1 - exp(-(f*I_ch*q_tb*year)/n_ch)) %>% 
   mutate("Fixed I/n" = 1 - exp(-(f*I_ch_fix*q_tb*year)/n_ch)) %>% 
@@ -989,18 +740,22 @@ df_ch_TB <- tibble(school = c(rep("Switzerland", 3000)), f = sample_f_ch, q_tb =
     names_to = "Assumption",
     values_to = "risk")
 
-df_ch_COV_EX <- tibble(school = c(rep("Switzerland", 3000)), f = sample_f_ch, q_cov = sample_q_cov, I = I_covEX_ch$I) %>% 
-  mutate("Excess" = 1 - exp(-(f*I*q_cov*month)/n_ch)) 
+df_ch_COV_EX <- tibble(school = c(rep("Switzerland", 3000)), 
+                       f = sample_f_ch, 
+                       q_cov = sample_q_cov, 
+                       I = I_covEX_ch$I) %>% 
+  mutate(risk = 1 - exp(-(f*I*q_cov*month)/n_ch)) %>% 
+  mutate(Assumption = c(rep("Prevalence",3000))) 
 
-df_ch_COV <- tibble(school = c(rep("Switzerland", 3000)), f = sample_f_ch, q_cov = sample_q_cov) %>% 
-  mutate("Fixed I/n" = 1 - exp(-(f*I_ch_cov_fix*q_cov*month)/n_ch)) %>% 
-  mutate("High estimation" = 1 - exp(-(f*I_ch_high*q_cov*month)/n_ch)) %>% 
-  mutate("Medium estimation" = 1 - exp(-(f*I_ch_medium*q_cov*month)/n_ch)) %>%
-  mutate("Low estimation"= 1 - exp(-(f*I_ch_low*q_cov*month)/n_ch)) %>% 
-  pivot_longer(
-    cols = c("Fixed I/n", "High estimation", "Medium estimation", "Low estimation"),
-    names_to = "Assumption",
-    values_to = "risk")
+df_ch_COV_FIX <- tibble(school = c(rep("Switzerland", 3000)), 
+                       f = sample_f_ch, 
+                       q_cov = sample_q_cov, 
+                       I = I_covEX_ch_fix$I) %>% 
+  mutate(risk = 1 - exp(-(f*I*q_cov*month)/n_ch)) %>% 
+  mutate(Assumption = c(rep("Fixed I/n",3000)))
+
+df_ch_COV <- rbind(df_ch_COV_EX,df_ch_COV_FIX)
+
 #Tanzania
 df_tz_TB <- tibble(school = c(rep("Tanzania", 3000)), f = sample_f_tz, q_tb = sample_q, q_cov = sample_q_cov) %>% 
   mutate("Prevalence" = 1 - exp(-(f*I_tz*q_tb*year)/n_tz)) %>% 
@@ -1010,19 +765,21 @@ df_tz_TB <- tibble(school = c(rep("Tanzania", 3000)), f = sample_f_tz, q_tb = sa
     names_to = "Assumption",
     values_to = "risk")
 
-df_tz_COV_EX <- tibble(school = c(rep("Tanzania", 3000)), f = sample_f_tz, q_cov = sample_q_cov, I = I_covEX_tz$I) %>% 
-  mutate("Excess" = 1 - exp(-(f*I*q_cov*month)/n_tz)) 
+df_tz_COV_EX <- tibble(school = c(rep("Tanzania", 3000)), 
+                       f = sample_f_tz, 
+                       q_cov = sample_q_cov, 
+                       I = I_covEX_tz$I) %>% 
+  mutate(risk = 1 - exp(-(f*I*q_cov*month)/n_tz)) %>% 
+  mutate(Assumption = c(rep("Prevalence",3000))) 
 
-df_tz_COV <- tibble(school = c(rep("Tanzania", 3000)), f = sample_f_tz, q_cov = sample_q_cov) %>% 
-  mutate("Fixed I/n" = 1 - exp(-(f*I_tz_cov_fix*q_cov*month)/n_tz)) %>% 
-  mutate("High estimation" = 1 - exp(-(f*I_tz_high*q_cov*month)/n_tz)) %>% 
-  mutate("Medium estimation"= 1 - exp(-(f*I_tz_medium*q_cov*month)/n_tz)) %>% 
-  mutate("Low estimation"= 1 - exp(-(f*I_tz_low*q_cov*month)/n_tz)) %>% 
-  pivot_longer(
-    cols = c("Fixed I/n", "High estimation", "Medium estimation", "Low estimation"),
-    names_to = "Assumption",
-    values_to = "risk")
+df_tz_COV_FIX <- tibble(school = c(rep("Tanzania", 3000)), 
+                       f = sample_f_tz, 
+                       q_cov = sample_q_cov, 
+                       I = I_covEX_tz_fix$I) %>% 
+  mutate(risk = 1 - exp(-(f*I*q_cov*month)/n_tz)) %>% 
+  mutate(Assumption = c(rep("Fixed I/n",3000)))
 
+df_tz_COV <- rbind(df_tz_COV_EX,df_tz_COV_FIX)
 #South Africa  
 df_sa_TB <- tibble(school = c(rep("South Africa", 3000)), f = sample_f_sa, q_tb = sample_q, q_cov = sample_q_cov) %>% 
   mutate("Prevalence" = 1 - exp(-(f*I_sa*q_tb*year)/n_sa)) %>% 
@@ -1032,74 +789,149 @@ df_sa_TB <- tibble(school = c(rep("South Africa", 3000)), f = sample_f_sa, q_tb 
     names_to = "Assumption",
     values_to = "risk")
 
-df_sa_COV_EX <- tibble(school = c(rep("South Africa", 3000)), f = sample_f_sa, q_cov = sample_q_cov, I = I_covEX_sa$I) %>% 
-  mutate("Excess" = 1 - exp(-(f*I*q_cov*month)/n_sa)) 
+df_sa_COV_EX <- tibble(school = c(rep("South Africa", 3000)), 
+                       f = sample_f_sa, 
+                       q_cov = sample_q_cov, 
+                       I = I_covEX_sa$I) %>% 
+  mutate(risk = 1 - exp(-(f*I*q_cov*month)/n_sa)) %>% 
+  mutate(Assumption = c(rep("Prevalence",3000))) 
 
-df_sa_COV <- tibble(school = c(rep("South Africa", 3000)), f = sample_f_sa, q_cov = sample_q_cov) %>% 
-  mutate("Fixed I/n" = 1 - exp(-(f*I_sa_cov_fix*q_cov*month)/n_sa)) %>% 
-  mutate("High estimation" = 1 - exp(-(f*I_sa_high*q_cov*month)/n_sa)) %>% 
-  mutate("Medium estimation" = 1 - exp(-(f*I_sa_medium*q_cov*month)/n_sa)) %>% 
-  mutate("Low estimation" = 1 - exp(-(f*I_sa_low*q_cov*month)/n_sa)) %>% 
-   pivot_longer(
-    cols = c("Fixed I/n", "High estimation", "Medium estimation", "Low estimation"),
-    names_to = "Assumption",
-    values_to = "risk")
+df_sa_COV_FIX <- tibble(school = c(rep("South Africa", 3000)), 
+                       f = sample_f_sa, 
+                       q_cov = sample_q_cov, 
+                       I = I_covEX_sa_fix$I) %>% 
+  mutate(risk = 1 - exp(-(f*I*q_cov*month)/n_sa)) %>% 
+  mutate(Assumption = c(rep("Fixed I/n",3000)))
+
+df_sa_COV <- rbind(df_sa_COV_EX,df_sa_COV_FIX)
+
+##
 
 df_complet_TB <- bind_rows(df_ch_TB, df_sa_TB, df_tz_TB)
-df_complet_COV_EX <- bind_rows(df_ch_COV_EX, df_tz_COV_EX, df_sa_COV_EX)
-df_complet_COV <- bind_rows(df_ch_COV, df_sa_COV, df_tz_COV)
+df_complet_COV <- bind_rows(df_ch_COV, df_tz_COV, df_sa_COV)
+```
 
+```{r results for paper}
 # mean+/-sd for Paper
 ##TB
-df_ch_TB %>% 
-  filter(Assumption == "Prevalence") %>% 
-  summarise(mean = mean(risk$f), sd = sd(risk$f), median = median(risk$f), lower = quantile(risk$f, probs = 0.25), upper = quantile(risk$f, probs = 0.75), CI = quantile(risk$f, probs = c(0.025,0.975)))
+median_fun <- function(data, indices) { #for bootstraping (to estimate CI)
+  median(data[indices])
+}
 
-df_sa_TB %>% 
-  filter(Assumption == "Prevalence") %>% 
-   summarise(mean = mean(risk$f), sd = sd(risk$f), median = median(risk$f), lower = quantile(risk$f, probs = 0.25), upper = quantile(risk$f, probs = 0.75), CI = quantile(risk$f, probs = c(0.025,0.975)))
+# Perform bootstrapping with 1000 replications
+df_ch_TB_PREV <- df_ch_TB %>% 
+  filter(Assumption == "Prevalence")
 
-df_tz_TB %>% 
-  filter(Assumption == "Prevalence") %>% 
-  summarise(mean = mean(risk$f), sd = sd(risk$f), median = median(risk$f), lower = quantile(risk$f, probs = 0.25), upper = quantile(risk$f, probs = 0.75), CI = quantile(risk$f, probs = c(0.025,0.975)))
+df_ch_TB_FIX <- df_ch_TB %>% 
+  filter(Assumption == "Fixed I/n")
+
+boot_TB_ch_PREV <- boot(df_ch_TB_PREV$risk$f, median_fun, R = 1000)
+boot_TB_ch_FIX <- boot(df_ch_TB_FIX$risk$f, median_fun, R = 1000)
+
+# Calculate the 95% CI for the median
+median(df_ch_TB_PREV$risk$f)
+med_TB_ch_PREV <- quantile(boot_TB_ch_PREV$t, c(0.025, 0.975))
+
+median(df_ch_TB_FIX$risk$f)
+med_TB_ch_FIX <- quantile(boot_TB_ch_FIX$t, c(0.025, 0.975))
+
+# Print the results
+print(paste("95% CI for median:", med_TB_ch_PREV))
+print(paste("95% CI for median:", med_TB_ch_FIX))
+
+###Tanzania
+df_tz_TB_PREV <- df_tz_TB %>% 
+  filter(Assumption == "Prevalence")
+
+df_tz_TB_FIX <- df_tz_TB %>% 
+  filter(Assumption == "Fixed I/n")
+
+boot_TB_tz_PREV <- boot(df_tz_TB_PREV$risk$f, median_fun, R = 1000)
+boot_TB_tz_FIX <- boot(df_tz_TB_FIX$risk$f, median_fun, R = 1000)
+
+# Calculate the 95% CI for the median
+median(df_tz_TB_PREV$risk$f)
+med_TB_tz_PREV <- quantile(boot_TB_tz_PREV$t, c(0.025, 0.975))
+
+median(df_tz_TB_FIX$risk$f)
+med_TB_tz_FIX <- quantile(boot_TB_tz_FIX$t, c(0.025, 0.975))
+
+# Print the results
+print(paste("95% CI for median:", med_TB_tz_PREV))
+print(paste("95% CI for median:", med_TB_tz_FIX))
+
+###South Africa
+df_sa_TB_PREV <- df_sa_TB %>% 
+  filter(Assumption == "Prevalence")
+
+df_sa_TB_FIX <- df_sa_TB %>% 
+  filter(Assumption == "Fixed I/n")
+
+boot_TB_sa_PREV <- boot(df_sa_TB_PREV$risk$f, median_fun, R = 1000)
+boot_TB_sa_FIX <- boot(df_sa_TB_FIX$risk$f, median_fun, R = 1000)
+
+# Calculate the 95% CI for the median
+median(df_sa_TB_PREV$risk$f)
+med_TB_sa_PREV <- quantile(boot_TB_sa_PREV$t, c(0.025, 0.975))
+
+median(df_sa_TB_FIX$risk$f)
+med_TB_sa_FIX <- quantile(boot_TB_sa_FIX$t, c(0.025, 0.975))
+
+# Print the results
+print(paste("95% CI for median:", med_TB_sa_PREV))
+print(paste("95% CI for median:", med_TB_sa_FIX))
 
 #COV
-df_ch_COV %>% 
-  filter(Assumption == "Medium estimation") %>% 
-  summarise(mean = mean(risk$f), sd = sd(risk$f), median = median(risk$f), lower = quantile(risk$f, probs = 0.25), upper = quantile(risk$f, probs = 0.75), CI = quantile(risk$f, probs = c(0.025,0.975)))
 
-df_sa_COV %>% 
-  filter(Assumption == "Medium estimation") %>% 
-  summarise(mean = mean(risk$f), sd = sd(risk$f), median = median(risk$f), lower = quantile(risk$f, probs = 0.25), upper = quantile(risk$f, probs = 0.75), CI = quantile(risk$f, probs = c(0.025,0.975)))
+boot_COV_ch_PREV <- boot(df_ch_COV_EX$risk$f, median_fun, R = 1000)
+boot_COV_ch_FIX <- boot(df_ch_COV_FIX$risk$f, median_fun, R = 1000)
 
-df_tz_COV %>% 
-  filter(Assumption == "Medium estimation") %>% 
-  summarise(mean = mean(risk$f), sd = sd(risk$f), median = median(risk$f), lower = quantile(risk$f, probs = 0.25), upper = quantile(risk$f, probs = 0.75), CI = quantile(risk$f, probs = c(0.025,0.975)))
+# Calculate the 95% CI for the median
+median(df_ch_COV_EX$risk$f)
+med_COV_ch_PREV <- quantile(boot_COV_ch_PREV$t, c(0.025, 0.975))
 
+median(df_ch_COV_FIX$risk$f)
+med_COV_ch_FIX <- quantile(boot_COV_ch_FIX$t, c(0.025, 0.975))
+
+# Print the results
+print(paste("95% CI for median:", med_COV_ch_PREV))
+print(paste("95% CI for median:", med_COV_ch_FIX))
+
+###Tanzania
+boot_COV_tz_PREV <- boot(df_tz_COV_EX$risk$f, median_fun, R = 1000)
+boot_COV_tz_FIX <- boot(df_tz_COV_FIX$risk$f, median_fun, R = 1000)
+
+# Calculate the 95% CI for the median
+median(df_tz_COV_EX$risk$f)
+med_COV_tz_PREV <- quantile(boot_COV_tz_PREV$t, c(0.025, 0.975))
+
+median(df_tz_COV_FIX$risk$f)
+med_COV_tz_FIX <- quantile(boot_COV_tz_FIX$t, c(0.025, 0.975))
+
+# Print the results
+print(paste("95% CI for median:", med_COV_tz_PREV))
+print(paste("95% CI for median:", med_COV_tz_FIX))
+
+###South Africa
+boot_COV_sa_PREV <- boot(df_sa_COV_EX$risk$f, median_fun, R = 1000)
+boot_COV_sa_FIX <- boot(df_sa_COV_FIX$risk$f, median_fun, R = 1000)
+
+# Calculate the 95% CI for the median
+median(df_sa_COV_EX$risk$f)
+med_COV_sa_PREV <- quantile(boot_COV_sa_PREV$t, c(0.025, 0.975))
+
+median(df_sa_COV_FIX$risk$f)
+med_COV_sa_FIX <- quantile(boot_COV_sa_FIX$t, c(0.025, 0.975))
+
+# Print the results
+print(paste("95% CI for median:", med_COV_sa_PREV))
+print(paste("95% CI for median:", med_COV_sa_FIX))
 ```
 
 ## Plots of the transmission risk 
 
 ```{r plotting TB}
-df_complet_TB %>% #all in 1 (not necessary)
-  ggplot(aes(x = school, y=risk$f, fill = school, color = Assumption)) +
-  scale_y_continuous(labels = function(x) paste0(x*100))+
-  xlab("Country") + 
-  ylab("Yearly risk of infection (%)") +
-  theme_bw2() +
-  theme(axis.title.x = element_blank()) +
-  geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  guides(fill="none")+
- geom_point(aes(x = 1.925, y = quantile(df_ch_TB$risk$f[df_ch_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 2.075, y = quantile(df_ch_TB$risk$f[df_ch_TB$Assumption == "Prevalence"], probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 0.925, y = quantile(df_sa_TB$risk$f[df_sa_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 1.075, y = quantile(df_sa_TB$risk$f[df_sa_TB$Assumption == "Prevalence"], probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 2.925, y = quantile(df_tz_TB$risk$f[df_tz_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 3.075, y = quantile(df_tz_TB$risk$f[df_tz_TB$Assumption == "Prevalence"], probs = 0.95)), colour = "grey") +
-  scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  scale_color_manual(values = c("#DDA0DD","steelblue")) 
-
-school_order <- c("Switzerland", "Tanzania", "South Africa")
+school_order <- c("South Africa","Switzerland", "Tanzania")
 
 p2 <- df_complet_TB %>% 
   filter(Assumption == "Fixed I/n") %>% #two panel
@@ -1112,14 +944,13 @@ p2 <- df_complet_TB %>%
   theme(axis.title.x = element_blank())+
   guides(fill = "none") +
   geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  geom_point(aes(x=1,y=quantile(df_ch_TB$risk$f[df_ch_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=3,y=quantile(df_sa_TB$risk$f[df_sa_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=2,y=quantile(df_tz_TB$risk$f[df_tz_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
+  geom_point(aes(x=2,y=quantile(df_ch_TB$risk$f[df_ch_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
+  geom_point(aes(x=1,y=quantile(df_sa_TB$risk$f[df_sa_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
+  geom_point(aes(x=3,y=quantile(df_tz_TB$risk$f[df_tz_TB$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
   scale_fill_manual(values = c("#FFA07A", "#FFDEAD", "#B0C4DE")) +
-  ggtitle("Fixed I/n estimation") +
+  ggtitle("Fixed I/n Estimation") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  coord_cartesian(ylim = c(0, 0.82))
-
+  coord_cartesian(ylim = c(0, 0.9))
 
 p1 <- df_complet_TB %>% 
   filter(Assumption == "Prevalence") %>% #two panel
@@ -1132,131 +963,56 @@ p1 <- df_complet_TB %>%
   theme(axis.title.x = element_blank())+
   guides(fill = "none") +
   geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  geom_point(aes(x=1,y=quantile(df_ch_TB$risk$f[df_ch_TB$Assumption == "Prevalence"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=3,y=quantile(df_sa_TB$risk$f[df_sa_TB$Assumption == "Prevalence"], probs = 0.95)), colour="grey") +
- geom_point(aes(x=2,y=quantile(df_tz_TB$risk$f[df_tz_TB$Assumption == "Prevalence"], probs = 0.95)), colour="grey") +
+  geom_point(aes(x=2,y=quantile(df_ch_TB$risk$f[df_ch_TB$Assumption == "Prevalence"], probs = 0.95)), colour="grey") +
+  geom_point(aes(x=1,y=quantile(df_sa_TB$risk$f[df_sa_TB$Assumption == "Prevalence"], probs = 0.95)), colour="grey") +
+ geom_point(aes(x=3,y=quantile(df_tz_TB$risk$f[df_tz_TB$Assumption == "Prevalence"], probs = 0.95)), colour="grey") +
   scale_fill_manual(values = c("#FFA07A", "#FFDEAD", "#B0C4DE")) +
   ggtitle("Prevalence Estimation") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  coord_cartesian(ylim = c(0, 0.82))
+  coord_cartesian(ylim = c(0, 0.90))
 
 plot_grid(p1, p2, ncol = 2) #plot in the paper
 ```
 
 ```{r plotting SARS excess estimate}
-
-df_complet_COV_EX %>% 
-  ggplot(aes(x = school, y=Excess$f, fill = school)) +
+plot_sars1 <- df_complet_COV%>% 
+  filter(Assumption == "Prevalence") %>% #two panel
+  ggplot(aes(x = school, y=risk$f, fill = school)) +
   scale_y_continuous(labels = function(x) paste0(x*100), expand = c(0,0))+
   xlab("Country") + 
   ylab("Monthly risk of infection (%)") +
-  theme_bw() +
+  theme_bw2() +
   theme(axis.title.x = element_blank()) +
   geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
   guides(fill="none")+
-  geom_point(aes(x = 2, y = quantile(df_ch_COV_EX$Excess$f, probs = 0.05)), colour = "grey") +
-  geom_point(aes(x = 2, y = quantile(df_ch_COV_EX$Excess$f, probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 1, y = quantile(df_sa_COV_EX$Excess$f, probs = 0.05)), colour = "grey") +
-   geom_point(aes(x = 1, y = quantile(df_sa_COV_EX$Excess$f, probs = 0.95)), colour = "grey") +
-   geom_point(aes(x = 3, y = quantile(df_tz_COV_EX$Excess$f, probs = 0.05)), colour = "grey") +
-   geom_point(aes(x = 3, y = quantile(df_tz_COV_EX$Excess$f, probs = 0.95)), colour = "grey") +
+  geom_point(aes(x = 2, y = quantile(df_ch_COV_EX$risk$f, probs = 0.95)), colour = "grey") +
+  geom_point(aes(x = 1, y = quantile(df_sa_COV_EX$risk$f, probs = 0.95)), colour = "grey") +
+  geom_point(aes(x = 3, y = quantile(df_tz_COV_EX$risk$f, probs = 0.95)), colour = "grey") +
   scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
+  ggtitle("Prevalence Estimation") +
+  theme(plot.title = element_text(hjust = 0.5)) +
   scale_color_manual(values = c("#DDA0DD","steelblue")) +
-  coord_cartesian(ylim=c(0,0.15))
-```
+  coord_cartesian(ylim=c(0,0.20))
 
-```{r plotting SARS}
-df_complet_COV %>% #all in 1 (not necessary)
-  ggplot(aes(x = school, y=risk$f, fill = school, color = Assumption))+
-  scale_y_continuous(labels = function(x) paste0(x*100))+
+plot_sars2 <- df_complet_COV%>% 
+  filter(Assumption == "Fixed I/n") %>% #two panel
+  ggplot(aes(x = school, y=risk$f, fill = school)) +
+  scale_y_continuous(labels = function(x) paste0(x*100), expand = c(0,0))+
   xlab("Country") + 
-  ylab("Monthly risk of infection (%)") +
-  theme_bw() +
-  theme(axis.title.x = element_blank())+
-  guides(fill = "none") +
+  ylab("") +
+  theme_bw2() +
+  theme(axis.title.x = element_blank()) +
   geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  #geom_point(aes(x=1,y=unname(quantile(df_sa$P_month_one_cov$f, probs = 0.95))),colour="grey") +
-  #geom_point(aes(x=2,y=unname(quantile(df_ch$P_month_one_cov$f, probs = 0.95))),colour="grey") +
-  #geom_point(aes(x=3,y=unname(quantile(df_tz$P_month_one_cov$f, probs = 0.95))),colour="grey") +
+  guides(fill="none")+
+  geom_point(aes(x = 2, y = quantile(df_ch_COV_FIX$risk$f, probs = 0.95)), colour = "grey") +
+  geom_point(aes(x = 1, y = quantile(df_sa_COV_FIX$risk$f, probs = 0.95)), colour = "grey") +
+  geom_point(aes(x = 3, y = quantile(df_tz_COV_FIX$risk$f, probs = 0.95)), colour = "grey") +
   scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  scale_color_brewer(palette = "Pastel1") 
+  ggtitle("Fixed I/n Estimation") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_color_manual(values = c("#DDA0DD","steelblue")) +
+  coord_cartesian(ylim=c(0,0.20))
 
-p3 <- df_complet_COV %>% 
-  filter(Assumption == "High estimation") %>%  
-  mutate(school = factor(school, levels = school_order)) %>%
-  ggplot(aes(x = school, y=risk$f, fill = school))+
-  scale_y_continuous(labels = function(x) paste0(x*100), expand = c(0,0))+
-  xlab("Country") + 
-  ylab("Monthly risk of infection (%)") +
-  theme_bw2() +
-  theme(axis.title.x = element_blank())+
-  guides(fill = "none") + 
-  geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  geom_point(aes(x=1,y=quantile(df_ch_COV$risk$f[df_ch_COV$Assumption == "High estimation"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=3,y=quantile(df_sa_COV$risk$f[df_sa_COV$Assumption == "High estimation"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=2,y=quantile(df_tz_COV$risk$f[df_tz_COV$Assumption == "High estimation"], probs = 0.95)), colour="grey") +
-  scale_fill_manual(values = c("#FFA07A", "#FFDEAD", "#B0C4DE")) +
-  ggtitle("High estimation") +
-  coord_cartesian(ylim = c(0, 0.2)) +
-    theme(plot.title = element_text(hjust = 0.5)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-p4 <- df_complet_COV %>% 
-  filter(Assumption == "Medium estimation") %>%  
-  mutate(school = factor(school, levels = school_order)) %>%
-  ggplot(aes(x = school, y=risk$f, fill = school))+
-  scale_y_continuous(labels = function(x) paste0(x*100), expand = c(0,0))+
-  xlab("Country") + 
-  ylab("") +
-  theme_bw2() +
-  theme(axis.title.x = element_blank())+
-  guides(fill = "none") + 
-  geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  geom_point(aes(x=1,y=quantile(df_ch_COV$risk$f[df_ch_COV$Assumption == "Medium estimation"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=3,y=quantile(df_sa_COV$risk$f[df_sa_COV$Assumption == "Medium estimation"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=2,y=quantile(df_tz_COV$risk$f[df_tz_COV$Assumption == "Medium estimation"], probs = 0.95)), colour="grey") +
-  scale_fill_manual(values = c("#FFA07A", "#FFDEAD", "#B0C4DE")) +
-  ggtitle("Medium estimation") +
-    theme(plot.title = element_text(hjust = 0.5)) +
-  coord_cartesian(ylim = c(0, 0.2))
-
-p5 <- df_complet_COV %>% 
-  filter(Assumption == "Low estimation") %>%  
-  mutate(school = factor(school, levels = school_order)) %>%
-  ggplot(aes(x = school, y=risk$f, fill = school))+
-  scale_y_continuous(labels = function(x) paste0(x*100), expand = c(0,0))+
-  xlab("Country") + 
-  ylab("Monthly risk of infection (%)") +
-  theme_bw2() +
-  theme(axis.title.x = element_blank())+
-  guides(fill = "none") + 
-  geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  geom_point(aes(x=1,y=quantile(df_ch_COV$risk$f[df_ch_COV$Assumption == "Low estimation"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=3,y=quantile(df_sa_COV$risk$f[df_sa_COV$Assumption == "Low estimation"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=2,y=quantile(df_tz_COV$risk$f[df_tz_COV$Assumption == "Low estimation"], probs = 0.95)), colour="grey") +
-  scale_fill_manual(values = c("#FFA07A", "#FFDEAD", "#B0C4DE")) +
-  ggtitle("Low estimation") +
-    theme(plot.title = element_text(hjust = 0.5)) +
-  coord_cartesian(ylim = c(0, 0.2))
-
-p6 <- df_complet_COV %>% 
-  filter(Assumption == "Fixed I/n") %>%  
-  mutate(school = factor(school, levels = school_order)) %>%
-  ggplot(aes(x = school, y=risk$f, fill = school))+
-  scale_y_continuous(labels = function(x) paste0(x*100), expand = c(0,0))+
-  xlab("Country") + 
-  ylab("") +
-  theme_bw2() +
-  theme(axis.title.x = element_blank())+
-  guides(fill = "none") + 
-  geom_boxplot(width=0.3, alpha=0.2, outlier.shape = NA) +
-  geom_point(aes(x=1,y=quantile(df_ch_COV$risk$f[df_ch_COV$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=3,y=quantile(df_sa_COV$risk$f[df_sa_COV$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
-  geom_point(aes(x=2,y=quantile(df_tz_COV$risk$f[df_tz_COV$Assumption == "Fixed I/n"], probs = 0.95)), colour="grey") +
-  scale_fill_manual(values = c("#FFA07A", "#FFDEAD", "#B0C4DE")) +
-  ggtitle("Fixed I/n estimation") +
-    theme(plot.title = element_text(hjust = 0.5)) +
-  coord_cartesian(ylim = c(0, 0.2))
-  
-plot_grid(p3, p4, p5, p6, ncol = 2) #plot in the paper
+plot_grid(plot_sars1, plot_sars2, ncol = 2) #plot in the paper
 ```
+

@@ -1,0 +1,83 @@
+---
+title: "Exploration"
+author: "Remo Schmutz"
+date: "2023-09-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r data import, echo = FALSE}
+co2.sa <- readRDS("../data-clean/co2-sa.rds")
+
+co2.ch <- readRDS("../data-clean/co2-ch.rds")
+
+co2.tz <- readRDS("../data-clean/co2-tz.rds")
+```
+
+### CO~2-~ measurements during the day
+
+#### Switzerland
+
+```{r Swizerland, echo = FALSE}
+ch.hourly <- co2.ch %>% 
+  group_by(time_h) %>% #to analyze each hour seperately
+  summarize(median = median(co2),
+            lower = quantile(co2, 0.25),
+            upper = quantile(co2, 0.75),
+            n_data = n()) %>%
+  ungroup()
+
+ch.hourly %>%
+  ggplot(aes(x = time_h, y = n_data)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  xlab("Daytime (h)") +
+  ylab("number of measurements") +
+  theme_bw() +
+  theme(legend.title = element_blank())
+
+ch.hourly %>% #plot co2 during the day (ch)
+  ggplot(aes(x = time_h)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position =    position_dodge2(width = .2)) +
+  geom_point(aes(y = median), position = position_dodge2(width = .2)) +
+  scale_color_brewer(palette = "Set2") +
+  scale_x_continuous(breaks = seq(7, 16, 1)) +
+  labs(x = "Daytime (h)", y = "CO2 (Mean and IQR)") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+```
+
+#### Tanzania
+
+```{r Tanzania, echo = FALSE}
+
+tz.hourly <- co2.tz %>% 
+  group_by(time_h) %>%
+  summarize(median = median(co2),
+            lower = quantile(co2, 0.25),
+            upper = quantile(co2, 0.75),
+            n_data = n()) %>%
+  ungroup()
+
+tz.hourly %>%
+  ggplot(aes(x = time_h, y = n_data)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  xlab("Daytime (h)") +
+  ylab("number of measurements") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank())
+
+tz.hourly %>% #plot co2 during the day (tz)
+  ggplot(aes(x = time_h)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, position =position_dodge2(width = .2)) +
+  geom_point(aes(y = median), position = position_dodge2(width = .2)) +
+  scale_color_brewer(palette = "Set2") +
+  scale_x_continuous(breaks = seq(7, 17, 1)) +
+  labs(x = "Daytime (h)", y = "CO2 (Mean and IQR)") +
+  theme_bw() +
+  theme(legend.position = c(0.9,0.9), legend.title = element_blank()) 
+
+```

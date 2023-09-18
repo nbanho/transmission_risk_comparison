@@ -69,7 +69,6 @@ names(VER) <- c("sitting, breathing", "sitting, speaking", "sitting, speaking lo
 
 VER_standing_speaking <- 4.9e-3 
 IHR_standing <- c(8.36 + 10.65) / 2 / 1000 * 60 
-VER_sitting_speaking <- IHR_sitting / IHR_standing * 4.9e-3 
 
 #' To compute the quanta rate, we use the vira the viral load input data 
 #' and conversion factors reported by Mikszewski in Table 1
@@ -99,7 +98,7 @@ activity <- read.csv("data-raw/activity.csv") %>%
   filter(any(value)) %>% # exclude times without lesson in the classroom
   ungroup() %>%
   group_by(activity) %>%
-  summarize(n = sum(value)) %>%
+  dplyr::summarize(n = sum(value)) %>%
   ungroup() %>%
   mutate(p = n / sum(n))
 
@@ -152,6 +151,7 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
   q <- c(cv(n_pa['breathing']) * ci[pathogen] * VER['sitting, breathing'],
          cv(n_pa['speaking']) * ci[pathogen] * VER['sitting, breathing'],
          cv(n_pa['speaking loudly']) * ci[pathogen] * VER['sitting, speaking loudly'])
+
   return(q)
   
 }
@@ -213,7 +213,7 @@ df <- tibble(
     f = (co2 - 400) / 31500,
     prev_s = (prev_u - prev_l) / 2 * qnorm(0.975),
     prev = map2(prev_m, prev_s, function(m, s) rtrunc(1e3, spec = "norm", a = 0, mean = m, sd = s))
-  ) %>%
+  ) %>% 
   unnest(c(q, sc)) %>%
   unnest(c(prev)) %>%
   mutate(I = prev / 100000 * n,

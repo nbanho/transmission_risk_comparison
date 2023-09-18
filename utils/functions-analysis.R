@@ -14,8 +14,16 @@ f <- function(df) {
   df %>%
     mutate(f = ((co2 - C_o) / C_a) / 1000000,
            f.sens = ((co2 - C_o.sens) / C_a) / 1000000) %>%
-    summarise(f_bar = round(mean(f, na.rm = TRUE),3),
-              f_bar.sens = round(mean(f.sens, na.rm = TRUE),3))
+    summarise(mean = round(mean(f, na.rm = TRUE),3),
+              sd = round(sd(f, na.rm = TRUE),3),
+              median = round(median(f, na.rm = TRUE),3),
+              lower = round(quantile(f, 0.25),3),
+              upper = round(quantile(f, 0.75),3),
+              mean.sens = round(mean(f.sens, na.rm = TRUE),3),
+              sd.sens = round(sd(f.sens, na.rm = TRUE),3),
+              median.sens = round(median(f.sens, na.rm = TRUE),3),
+              lower.sens = round(quantile(f.sens, 0.25),3),
+              upper.sens = round(quantile(f.sens, 0.75),3),)
 }
 
 ### I (SARS) ----
@@ -71,25 +79,3 @@ simulate_excess <- function(country, period) {
   
   return(results)
 }
-
-#### Results ####
-
-summarize <- function(var_name) {
-  # Ensure the variable name is evaluated in the correct environment
-  var <- sym(var_name)
-  
-  summary_result <- data %>%
-    mutate(country = factor(country, levels = country.order)) %>%
-    group_by(country) %>%
-    summarise(
-      ymin = quantile(!!var, 0.05),
-      lower = quantile(!!var, 0.25),
-      middle = quantile(!!var, 0.5),
-      upper = quantile(!!var, 0.75),
-      ymax = quantile(!!var, 0.95)
-    )
-  
-  return(summary_result)
-}
-
-

@@ -67,9 +67,6 @@ VER <- c(IR["sitting"] / IR["lying (resting)"] * VER_M["resting, oral breathing"
          IR["sitting"] / IR["walking slowly (light activity)"] * VER_M["light activity, speaking loudly"])
 names(VER) <- c("sitting, breathing", "sitting, speaking", "sitting, speaking loudly")
 
-VER_standing_speaking <- 4.9e-3 
-IHR_standing <- c(8.36 + 10.65) / 2 / 1000 * 60 
-
 #' To compute the quanta rate, we use the vira the viral load input data 
 #' and conversion factors reported by Mikszewski in Table 1
 
@@ -104,6 +101,8 @@ activity <- read.csv("data-raw/activity.csv") %>%
 
 p_activ <- activity$p
 names(p_activ) <- activity$activity
+
+round(p_activ * 100)
 
 #' No we can re-estimate the quanta emission rates depending on activity levels
 #' using the predictive approach by Buonanno (see Eq. (1) in Mikszewski):
@@ -149,7 +148,7 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
   # number of samples per activity
   n_pa <- round(n * pa)
   q <- c(cv(n_pa['breathing']) * ci[pathogen] * VER['sitting, breathing'],
-         cv(n_pa['speaking']) * ci[pathogen] * VER['sitting, breathing'],
+         cv(n_pa['speaking']) * ci[pathogen] * VER['sitting, speaking'],
          cv(n_pa['speaking loudly']) * ci[pathogen] * VER['sitting, speaking loudly'])
 
   return(q)
@@ -157,6 +156,19 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
 }
 
 #### Distribution ####
+
+#' Summaries by activity
+set.seed(1)
+p_breath <- c(1, 0, 0)
+p_speak <- c(0, 1, 0)
+p_loud_speak <- c(0, 0, 1)
+names(p_breath) <- names(p_speak) <- names(p_loud_speak) <- names(p_activ)
+round(quantile(ERq(n = 1e6, pa = p_breath), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq(n = 1e6, pa = p_speak), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq(n = 1e6, pa = p_loud_speak), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq("Mtb", n = 1e6, pa = p_breath), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq("Mtb", n = 1e6, pa = p_speak), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq("Mtb", n = 1e6, pa = p_loud_speak), c(0.5, 0.025, 0.975)), 3)
 
 #' for the outbreak scenario we consider the whole distribution
 cov_q <- ERq(pathogen = "SARS-CoV-2", n = 1e6, pa = p_activ)
@@ -183,8 +195,8 @@ data.frame(
 #' Therefore, for the annual scenario we consider the 33%, 50%, and 66% percentile as the
 #' low, medium, and high scenario respectively
 
-quantile(cov_q, c(.33, .5, .66))
-quantile(mtb_q, c(.33, .5, .66))
+round(quantile(cov_q, c(.33, .5, .66)), 2)
+round(quantile(mtb_q, c(.33, .5, .66)), 2)
 
 #' Note that for Mtb, the low/medium/high scenario are in line with the
 #' estimates by Andrews et al considering different infectiousness durations. 

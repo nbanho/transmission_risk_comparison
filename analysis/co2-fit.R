@@ -193,7 +193,7 @@ plot_co2.ch <- loess.ch %>%
   theme(plot.title = element_text(hjust = 0.5)) +
   annotate("text", x = 2840, y = 0.00095, label = expression(paste("Normal (", mu, " = 1802, ", sigma, " = 546)")), size = 3, hjust = 0.7, vjust = 1)
 
-plot_co2_ch
+plot_co2.ch
 
 # Tanzania #
 
@@ -208,9 +208,9 @@ plot_co2.tz <- loess.tz %>%
   ggtitle("Tanzania") +
   theme(plot.title = element_text(hjust = 0.5)) +
   annotate("text", x = 2850, y = 0.0058, label = expression(paste("Student-t (", mu, " = 594, ", sigma, " = 80, ", nu, " = 1.55)")), size = 3, hjust = 0.75, vjust = 1)+
-  theme_bw2() +
+  theme_bw2() 
 
-print(plot_co2_tz)
+print(plot_co2.tz)
 
 # together #
 
@@ -219,7 +219,7 @@ plot.co2 <- grid.arrange(plot_co2.sa,plot_co2.ch,plot_co2.tz, ncol = 2)
 # save #
 
 ggsave(plot = plot.co2, 
-       filename = "results/co2-distr.png", 
+       filename = "results/co2/co2-distr.png", 
        width = 8 ,
        height = 5 
        )

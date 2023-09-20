@@ -1,6 +1,7 @@
 #### Libraries -----------------------------------------------------------------
 
 library(tidyverse)
+source("utils/functions-analysis.R")
 
 #### Data import ---------------------------------------------------------------
 
@@ -39,12 +40,13 @@ ACH.ch <- co2.ch %>%
   group_by(date) %>% 
   summarise(co2.max = max(co2)) %>% 
   mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
-         ACH = ((3600 * Q * n.ch) / vol.ch)) %>% 
-  summarise(mean=mean(ACH), 
-            sd=sd(ACH), 
-            median = median(ACH), 
-            lower = quantile(ACH, probs = 0.25), 
-            upper = quantile(ACH, probs = 0.75)) 
+         ACH = ((3600 * Q * n.ch) / vol.ch),
+         country = "Switzerland") %>% 
+  summarise(mean = round(mean(ACH), 3),
+            sd = round(sd(ACH),3), 
+            median = round(median(ACH), 3),
+            quantil25 = round(quantile(ACH, probs = 0.25), 3),
+            quantil75 = round(quantile(ACH, probs = 0.75),3)) 
 
 ### Tanzania ----
 
@@ -52,12 +54,13 @@ ACH.tz <- co2.tz %>%
   group_by(date) %>% 
   summarise(co2.max = max(co2)) %>% 
   mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
-         ACH = ((3600 * Q * n.tz) / vol.tz)) %>% 
-  summarise(mean=mean(ACH), 
-            sd=sd(ACH), 
-            median = median(ACH), 
-            lower = quantile(ACH, probs = 0.25), 
-            upper = quantile(ACH, probs = 0.75)) 
+         ACH = ((3600 * Q * n.tz) / vol.tz),
+         country = "Tanzania") %>% 
+  summarise(mean = round(mean(ACH), 3),
+            sd = round(sd(ACH),3), 
+            median = round(median(ACH), 3),
+            quantil25 = round(quantile(ACH, probs = 0.25), 3),
+            quantil75 = round(quantile(ACH, probs = 0.75),3))  
 
 ### South Africa ----
 
@@ -80,15 +83,28 @@ max.ch$quantile <- sapply(max.ch$co2.max, ecdf.ch)
 ACH.sa <- tibble(day = 1:35,
                  co2.max = quantile(co2.sa$co2, max.ch$quantile)) %>% 
   mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
-         ACH = ((3600 * Q * n.sa) / vol.sa)) %>% 
-  summarise(mean=mean(ACH), 
-            sd=sd(ACH), 
-            median = median(ACH), 
-            lower = quantile(ACH, probs = 0.25), 
-            upper = quantile(ACH, probs = 0.75)) 
+         ACH = ((3600 * Q * n.sa) / vol.sa),
+         country = "South Africa") %>% 
+  summarise(mean= round(mean(ACH), 3),
+            sd= round(sd(ACH),3), 
+            median = round(median(ACH), 3),
+            quantil25 = round(quantile(ACH, probs = 0.25), 3),
+            quantil75 = round(quantile(ACH, probs = 0.75),3)) 
+
+ACH <- bind_rows(ACH.sa, ACH.ch, ACH.tz) %>% 
+  mutate(country = c("South Africa", "Switzerland", "Tanzania")) %>% 
+  select(country, everything())
+
+saveRDS(ACH, "results/co2/ACH.rds")
 
 #### Calculation rebreathed air fraction (f) -----------------------------------
 
-f.sa = f(co2.sa)
+f.sa = f(co2.sa) 
 f.ch = f(co2.ch)
 f.tz = f(co2.tz)
+
+f <- bind_rows(f.sa, f.ch, f.tz) %>% 
+  mutate(country = rep(c("South Africa", "Switzerland", "Tanzania"), each = 2)) %>% 
+  select(country, everything())
+
+saveRDS(f, "results/co2/f.rds")

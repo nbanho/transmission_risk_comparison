@@ -7,7 +7,6 @@ library(LaplacesDemon)
 #### Utils ---------------------------------------------------------------------
 
 source("utils/functions-analysis.R")
-source("utils/plotting.R")
 source("utils/quanta.R")
 n.sample = 3000 
 set.seed(1793)

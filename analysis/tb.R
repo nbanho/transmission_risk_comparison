@@ -1,15 +1,19 @@
+#### TO-DO ####
+
+#outbreak scenario: sampling from daily f means instead of fixed f
+
 #### Libraries -----------------------------------------------------------------
 
 library(tidyverse)
 library(truncnorm)
 library(LaplacesDemon)
 library(tidybayes)
+library(wesanderson)
 
 #### Utils ---------------------------------------------------------------------
 
 source("utils/functions-analysis.R")
 source("utils/quanta.R")
-source("utils/plotting.R")
 n.sample = 3000 
 set.seed(1793)
 country.order <- c("SA","CH", "TZ")
@@ -42,15 +46,25 @@ f.tz <- f(co2.tz)
 
 # Main analysis #
 
-f_bar.sa <- f.sa$mean
-f_bar.ch <- f.ch$mean
-f_bar.tz <- f.tz$mean
+f_bar.sa <- f.sa %>% 
+  filter(scenario == "main") %>% 
+  pull(mean)
+f_bar.ch <- f.ch %>% 
+  filter(scenario == "main") %>% 
+  pull(mean)
+f_bar.tz <- f.tz %>% 
+  filter(scenario == "main") %>% 
+  pull(mean)
 
 # Sensitivity analysis (outdoor CO2) #
 
-f_bar.sens.sa <- f.sa$mean.sens
-f_bar.sens.ch <- f.ch$mean.sens
-f_bar.sens.tz <- f.tz$mean.sens
+#f_bar.sens.sa <- f.sa %>% 
+#f_bar.sens.ch <- f.ch$mean.sens
+#f_bar.sens.tz <- f.tz$mean.sens
+
+#result <- df %>%
+ # filter(condition_col == target_value) %>%
+  #summarize(mean_value = mean(sa, na.rm = TRUE))
 
 ### n (number of students) ----
 
@@ -63,7 +77,7 @@ n.tz = 50
 day = 7
 week = 7*5
 month = week*4
-year = month*10
+year = 919
 
 ### q (Quanta) ----
 
@@ -74,7 +88,7 @@ q <- ERq(pathogen = "Mtb", n = n.sample, pa = p_activ)
 # Fixed estimates #
 
 q.sample <- ERq(pathogen = "Mtb", n = 1e6, pa = p_activ)
-q.ann <- quantile(q.sample, c(.33, .5, .66))
+q.ann <- c(0.44, 3.57, 5.69)
 scenario <- c("Low", "Median", "High")
 q.med <- median(q.sample)
 
@@ -126,7 +140,7 @@ df.main <- tibble(
   unnest(c(q, sc)) %>% 
   mutate(P = 1 - exp(-f*q*I*t/n))
   
-df.main %>%
+plot.main <- df.main %>%
   mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania")),
          sc = factor(sc, levels = c("Low", "Median", "High"))) %>%
   ggplot(aes(x = sc, y = P)) +
@@ -134,9 +148,9 @@ df.main %>%
   stat_summary(aes(x = sc, y = P, color = country), geom = "point", fun = "median", 
                position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
   scale_y_continuous(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0.05)), limits = c(0,1)) +
-  scale_x_discrete(labels = c(expression(atop("Low", q*' = 0.35'~'h'^-1)), 
-                              expression(atop("Median", q*' = 1.53'~'h'^-1)),
-                              expression(atop("High", q*' = 6.26'~'h'^-1)))) +
+  scale_x_discrete(labels = c(expression(atop("Low", q*' = 0.44'~'h'^-1)), 
+                              expression(atop("Median", q*' = 3.57'~'h'^-1)),
+                              expression(atop("High", q*' = 5.69'~'h'^-1)))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   ggdist::scale_color_ramp_continuous() +
   labs(y = "Risk of infection (%)", color_ramp = "Interval", color = "") +
@@ -147,8 +161,17 @@ df.main %>%
         legend.box = "vertical") +
   guides(color_ramp = "none", 
          color = guide_legend(order = 1))
+plot.main
+ggsave("results/Mtb/mtb-main.png", width = 12 / cm(1), height = 8 / cm(1))  
 
-ggsave("results/mtb-main.png", width = 12 / cm(1), height = 8 / cm(1))  
+results.main <- df.main %>% 
+  group_by(country, sc) %>% 
+  rename(scenario = sc) %>% 
+  dplyr::summarise(lowerCI = round(quantile(P, 0.025),3),
+                   median = round(median(P), 3),
+                   upperCI = round(quantile(P, 0.975),3))
+
+saveRDS(results.main, "results/Mtb/main.rds")
 
 # Additional analysis (outbreak): fixed I/n / day / quanta distribution #
 
@@ -182,7 +205,15 @@ df.add %>%
   guides(color_ramp = "none", 
          color = "none")
 
-ggsave("results/mtb-add.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-add.png", width = 12 / cm(1), height = 8 / cm(1))  
+
+results.add <- df.add %>% 
+  group_by(country) %>% 
+  dplyr::summarise(lowerCI = round(quantile(P, 0.025),3),
+                   median = round(median(P), 3),
+                   upper = round(quantile(P, 0.975),3))
+
+saveRDS(results.add, "results/Mtb/add.rds")
 
 # Sensitivity analysis (prevalence): Using the non-age-specific prevalence data #
 
@@ -217,7 +248,15 @@ df.sens.prev %>%
   guides(color_ramp = "none", 
          color = "none")
 
-ggsave("results/mtb-sens.prev.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-sens.prev.png", width = 12 / cm(1), height = 8 / cm(1))  
+
+results.sens.prev <- df.sens.prev %>% 
+  group_by(country) %>% 
+  dplyr::summarise(lowerCI = round(quantile(P, 0.025),3),
+                   median = round(median(P), 3),
+                   upper = round(quantile(P, 0.975),3))
+
+saveRDS(results.sens.prev, "results/Mtb/sens.prev.rds")
 
 # Sensitivity analysis (Outdoor CO2): Comparing 600 ppm vs 400 ppm #
 
@@ -237,10 +276,17 @@ df.sens.co2 %>%
                      expand = expansion(add = c(0, 0.0)), 
                      limits = c(0,.5)) +
   scale_color_manual(values = wes_palette("Moonrise2"), guide = "none") +
-  scale_shape_manual(values=c(23, 24)) +  # 23 is a square, 24 is a triangle
-  labs(y = "Risk of infection (%)", color = "Country", shape = "CO2 Level") +
+  scale_shape_manual(values=c(23, 24), name = expression("Outdoor" ~ CO[2]- ~ "Level")) +  # Use expression here for the legend title
   theme_custom() +
   theme(axis.title.x = element_blank())
 
-ggsave("results/mtb-sens.co2.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-sens.co2.png", width = 12 / cm(1), height = 8 / cm(1))  
+
+results.sens.co2 <- df.sens.co2 %>% 
+  group_by(country, type) %>% 
+  dplyr::summarise(lowerCI = round(quantile(P, 0.025),3),
+                   median = round(median(P), 3),
+                   upper = round(quantile(P, 0.975),3))
+
+saveRDS(results.sens.co2, "results/Mtb/sens.co2.rds")
 

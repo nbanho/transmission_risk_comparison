@@ -159,18 +159,24 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
 
 #' Summaries by activity
 set.seed(1)
+
+round(quantile(ERq(n = 1e6, pa = p_activ), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq("Mtb", n = 1e6, pa = p_activ), c(0.5, 0.025, 0.975)), 3)
+
 p_breath <- c(1, 0, 0)
 p_speak <- c(0, 1, 0)
 p_loud_speak <- c(0, 0, 1)
 names(p_breath) <- names(p_speak) <- names(p_loud_speak) <- names(p_activ)
+
 round(quantile(ERq(n = 1e6, pa = p_breath), c(0.5, 0.025, 0.975)), 3)
 round(quantile(ERq(n = 1e6, pa = p_speak), c(0.5, 0.025, 0.975)), 3)
 round(quantile(ERq(n = 1e6, pa = p_loud_speak), c(0.5, 0.025, 0.975)), 3)
+
 round(quantile(ERq("Mtb", n = 1e6, pa = p_breath), c(0.5, 0.025, 0.975)), 3)
 round(quantile(ERq("Mtb", n = 1e6, pa = p_speak), c(0.5, 0.025, 0.975)), 3)
 round(quantile(ERq("Mtb", n = 1e6, pa = p_loud_speak), c(0.5, 0.025, 0.975)), 3)
 
-#' for the outbreak scenario we consider the whole distribution
+#' comparison 
 cov_q <- ERq(pathogen = "SARS-CoV-2", n = 1e6, pa = p_activ)
 mtb_q <- ERq(pathogen = "Mtb", n = 1e6, pa = p_activ)
 
@@ -196,19 +202,19 @@ data.frame(
 #' low, medium, and high scenario respectively
 
 round(quantile(cov_q, c(.33, .5, .66)), 2)
-round(quantile(mtb_q, c(.33, .5, .66)), 2)
+round(quantile(mtb_q, c(.4, .5, .6)), 2)
 
 #' Note that for Mtb, the low/medium/high scenario are in line with the
 #' estimates by Andrews et al considering different infectiousness durations. 
 
 
-##### Example ####
+##### Mtb Example ####
 
 #' This example shows the modeled annual Mtb transmission risks by country for the
 #' scenarios above using, for simplicety, the average CO2 level.
 
-q_ann_mtb <- quantile(mtb_q, c(.33, .5, .66))
-scenario <- c("Low", "Medium", "High")
+q_ann_mtb <- c(0.44, quantile(mtb_q, c(.5)), 5.69)
+scenario <- c("Low", "Median", "High")
   
 df <- tibble(
   country = c("South Africa", "Switzerland", "Tanzania"),
@@ -219,12 +225,12 @@ df <- tibble(
   prev_u = c(632, 20, 73),
   q = c(list(q_ann_mtb), list(q_ann_mtb), list(q_ann_mtb)),
   sc = c(list(scenario), list(scenario), list(scenario)),
-  t = 1440
+  t = 919
 ) %>%
   mutate(
     f = (co2 - 400) / 31500,
-    prev_s = (prev_u - prev_l) / 2 * qnorm(0.975),
-    prev = map2(prev_m, prev_s, function(m, s) rtrunc(1e3, spec = "norm", a = 0, mean = m, sd = s))
+    prev_s = (prev_u - prev_l) / (2 * qnorm(0.975)),
+    prev = map2(prev_m, prev_s, function(m, s) rtrunc(3e3, spec = "norm", a = 0, mean = m, sd = s))
   ) %>% 
   unnest(c(q, sc)) %>%
   unnest(c(prev)) %>%
@@ -233,20 +239,20 @@ df <- tibble(
 
 df %>%
   mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania")),
-         sc = factor(sc, levels = c("Low", "Medium", "High"))) %>%
+         sc = factor(sc, levels = c("Low", "Median", "High"))) %>%
   ggplot(aes(x = sc, y = P)) +
   stat_interval(aes(color = country, color_ramp = after_stat(rev(.width))), position = position_dodge(width = .5)) +
   stat_summary(aes(x = sc, y = P, color = country), geom = "point", fun = "median", 
                position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
   scale_y_continuous(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0.05)), limits = c(0,1)) +
-  scale_x_discrete(labels = c(expression(atop("Low", q*' = 0.8'~'h'^-1)), 
-                              expression(atop("Medium", q*' = 3.1'~'h'^-1)),
-                              expression(atop("High", q*' = 10.8'~'h'^-1)))) +
+  scale_x_discrete(labels = c(expression(atop("Andrews et al.; Low", q*' = 0.44'~'h'^-1)), 
+                              expression(atop("This study; Median", q*' = 3.57'~'h'^-1)),
+                              expression(atop("Andrews et al.; High", q*' = 5.69'~'h'^-1)))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   ggdist::scale_color_ramp_continuous() +
   labs(y = "Risk of infection (%)", color_ramp = "Interval", color = "",
        title = "Modeled risk of Mtb transmission",
-       subtitle = "Annual risk for t=1,440 school-hours by country",
+       subtitle = "Annual risk for t=919 school-hours by country",
        caption = "Median as dots, 50%-, 80%-, and 95%-CI as ribbons.") +
   theme_custom() +
   theme(axis.title.x = element_blank(),

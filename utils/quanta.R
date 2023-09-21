@@ -260,6 +260,9 @@ ggplot(mapping = aes(x = scenario, y = P, fill = country)) +
   geom_boxplot(data = df, 
                position = position_dodge(width = .5),
                outlier.shape = NA, coef = 0, width = 0.3) +
+  stat_summary(data = df,
+               mapping = aes(x = scenario, y = P, color = country), geom = "point", fun = "median", 
+               position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
   scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                limits = c(0,1), breaks = seq(0, 1, .2)^2) +
   scale_x_discrete(labels = c("Low", "Medium", "High"), expand = expansion(add = c(.33, .33))) +

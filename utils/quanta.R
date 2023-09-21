@@ -1,4 +1,5 @@
 #### Libraries ####
+
 library(tidyverse)
 library(reshape2)
 library(LaplacesDemon)
@@ -15,12 +16,26 @@ theme_custom <- function() {
           axis.title = element_text(size = text_size),
           plot.title = element_text(size = text_size + 2, face = "bold", hjust = 0, margin = ggplot2::margin(0, 0, 5, 0)),
           strip.text = element_text(size = text_size),
-          panel.grid.major = element_blank(),
+          #panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
           panel.border = element_blank(),
           axis.line.x = element_line(),
           axis.line.y = element_line(),
           axis.ticks =  element_line(),
           legend.text = element_text(size = 8))
+}
+
+
+# for rounding so that the vector sums to 1
+smart.round <- function(x) {
+  if (isTRUE(all.equal(sum(x), 1))) {
+    x <- x * 100
+  }
+  y <- floor(x)
+  indices <- tail(order(x-y), round(sum(x)) - sum(y))
+  y[indices] <- y[indices] + 1
+  y
 }
 
 
@@ -97,7 +112,9 @@ activity <- read.csv("data-raw/activity.csv") %>%
   group_by(activity) %>%
   dplyr::summarize(n = sum(value)) %>%
   ungroup() %>%
-  mutate(p = n / sum(n))
+  mutate(p = n / sum(n)) %>%
+  mutate(activity = factor(activity, levels = c("breathing", "speaking", "speaking loudly"))) %>%
+  arrange(activity)
 
 p_activ <- activity$p
 names(p_activ) <- activity$activity
@@ -135,7 +152,7 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
   }
   
   # check that proportions sum to 1
-  if (sum(pa) != 1) {
+  if (!isTRUE(all.equal(sum(pa), 1))) {
     stop("Proportions do not add to 1.")
   } 
   
@@ -146,7 +163,7 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
   }
   
   # number of samples per activity
-  n_pa <- round(n * pa)
+  n_pa <- smart.round(n * pa)
   q <- c(cv(n_pa['breathing']) * ci[pathogen] * VER['sitting, breathing'],
          cv(n_pa['speaking']) * ci[pathogen] * VER['sitting, speaking'],
          cv(n_pa['speaking loudly']) * ci[pathogen] * VER['sitting, speaking loudly'])
@@ -157,109 +174,104 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
 
 #### Distribution ####
 
+n.sample <- 1e6
+
 #' Summaries by activity
 set.seed(1)
-
-round(quantile(ERq(n = 1e6, pa = p_activ), c(0.5, 0.025, 0.975)), 3)
-round(quantile(ERq("Mtb", n = 1e6, pa = p_activ), c(0.5, 0.025, 0.975)), 3)
 
 p_breath <- c(1, 0, 0)
 p_speak <- c(0, 1, 0)
 p_loud_speak <- c(0, 0, 1)
 names(p_breath) <- names(p_speak) <- names(p_loud_speak) <- names(p_activ)
 
-round(quantile(ERq(n = 1e6, pa = p_breath), c(0.5, 0.025, 0.975)), 3)
-round(quantile(ERq(n = 1e6, pa = p_speak), c(0.5, 0.025, 0.975)), 3)
-round(quantile(ERq(n = 1e6, pa = p_loud_speak), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq(n = n.sample, pa = p_breath), c(0.5, 0.25, 0.75)), 1)
+round(quantile(ERq(n = n.sample, pa = p_speak), c(0.5, 0.25, 0.75)), 1)
+round(quantile(ERq(n = n.sample, pa = p_loud_speak), c(0.5, 0.25, 0.75)), 1)
 
-round(quantile(ERq("Mtb", n = 1e6, pa = p_breath), c(0.5, 0.025, 0.975)), 3)
-round(quantile(ERq("Mtb", n = 1e6, pa = p_speak), c(0.5, 0.025, 0.975)), 3)
-round(quantile(ERq("Mtb", n = 1e6, pa = p_loud_speak), c(0.5, 0.025, 0.975)), 3)
+round(quantile(ERq("Mtb", n = n.sample, pa = p_breath), c(0.5, 0.25, 0.75)), 1)
+round(quantile(ERq("Mtb", n = n.sample, pa = p_speak), c(0.5, 0.25, 0.75)), 1)
+round(quantile(ERq("Mtb", n = n.sample, pa = p_loud_speak), c(0.5, 0.25, 0.75)), 1)
 
-#' comparison 
-cov_q <- ERq(pathogen = "SARS-CoV-2", n = 1e6, pa = p_activ)
-mtb_q <- ERq(pathogen = "Mtb", n = 1e6, pa = p_activ)
+#' Weighted activity summary
 
-data.frame(
-  rbind(data.frame(pathogen = "SARS-CoV-2", q = cov_q),
-        data.frame(pathogen = "Mtb", q = mtb_q))
-) %>%
-  ggplot(aes(x = q, y = pathogen, fill = pathogen)) +
-  geom_boxplot(alpha = .5) +
-  scale_x_log10() +
-  theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+p_low <- c("breathing" = 0.7, "speaking" = 0.25, "speaking loudly" = 0.05)
+p_med <- c("breathing" = 0.5, "speaking" = 0.4, "speaking loudly" = 0.1)
+p_high <- c("breathing" = 0.3, "speaking" = 0.5, "speaking loudly" = 0.2)
 
-#' While it is reasonable to consider the whole quanta distribution for an outbreak,
-#' it is not plausible to consider the extreme tails when estimating the
-#' annual transmission risks. For the annual risk, we are more interested in 
-#' the average or median rate. The reasoning is somewhat similar as for the 
-#' rebreathed air fraction, which is also computed over the whole time period
-#' rather than using a distribution, since it is unlikely that students while 
-#' be exposed to CO2 > 2,000ppm for a whole year. Similarly, it is unlikely that 
-#' students are exposed to q > 1,000 per hour over a whole year.
-#' 
-#' Therefore, for the annual scenario we consider the 33%, 50%, and 66% percentile as the
-#' low, medium, and high scenario respectively
+q_cov_low <- ERq(n = n.sample, pa = p_low)
+q_cov_med <- ERq(n = n.sample, pa = p_med)
+q_cov_high <- ERq(n = n.sample, pa = p_high)
 
-round(quantile(cov_q, c(.33, .5, .66)), 2)
-round(quantile(mtb_q, c(.4, .5, .6)), 2)
+round(quantile(q_cov_low, c(.5, .25, .75)), 1)
+round(quantile(q_cov_med, c(.5, .25, .75)), 1)
+round(quantile(q_cov_high, c(.5, .25, .75)), 1)
 
-#' Note that for Mtb, the low/medium/high scenario are in line with the
-#' estimates by Andrews et al considering different infectiousness durations. 
+q_mtb_low <- ERq("Mtb", n.sample, pa = p_low)
+q_mtb_med <- ERq("Mtb", n.sample, pa = p_med)
+q_mtb_high <- ERq("Mtb", n.sample, pa = p_high)
+
+round(quantile(q_mtb_low, c(.5, .25, .75)), 1)
+round(quantile(q_mtb_med, c(.5, .25, .75)), 1)
+round(quantile(q_mtb_high, c(.5, .25, .75)), 1)
 
 
 ##### Mtb Example ####
 
-#' This example shows the modeled annual Mtb transmission risks by country for the
-#' scenarios above using, for simplicety, the average CO2 level.
+#' This example shows the modeled annual Mtb transmission risks by country.
+#' 
+#' Further assumptions:
+Ca <- 31500
+Co <- 400
+t_ann <- 919
 
-q_ann_mtb <- c(0.44, quantile(mtb_q, c(.5)), 5.69)
-scenario <- c("Low", "Median", "High")
-  
 df <- tibble(
   country = c("South Africa", "Switzerland", "Tanzania"),
-  co2 = c(1626, 1802, 643),
   n = c(30, 20, 50),
+  C = c(1626, 1802, 643),
   prev_m = c(432, 12, 42),
   prev_l = c(232, 5, 11),
   prev_u = c(632, 20, 73),
-  q = c(list(q_ann_mtb), list(q_ann_mtb), list(q_ann_mtb)),
-  sc = c(list(scenario), list(scenario), list(scenario)),
-  t = 919
-) %>%
-  mutate(
-    f = (co2 - 400) / 31500,
-    prev_s = (prev_u - prev_l) / (2 * qnorm(0.975)),
-    prev = map2(prev_m, prev_s, function(m, s) rtrunc(3e3, spec = "norm", a = 0, mean = m, sd = s))
-  ) %>% 
-  unnest(c(q, sc)) %>%
-  unnest(c(prev)) %>%
-  mutate(I = prev / 100000 * n,
-         P = 1 - exp(-f*q*I*t/n))
+  f = (C - Co) / Ca,
+  prev_s = (prev_u - prev_l) / (2 * qnorm(0.975)),
+  q =  rep(list(c(q_mtb_low, q_mtb_med, q_mtb_high)), each = 3),
+  scenario = rep(list(c(rep("Low", n.sample), rep("Medium", n.sample), rep("High", n.sample)))),
+  t = t_ann
+) 
 
-df %>%
+rI <- function(n, pm, ps, nstud) {
+  rtrunc(n, spec = "norm", a = 0, mean = pm, sd = ps) / 1e5 * nstud
+}
+
+df <- df %>%
+  mutate(I = pmap(list(prev_m, prev_s, n), function(m, s, n) rep(rI(n.sample, m, s, n), 3))) %>%
+  unnest(c(I, q, scenario)) %>%
+  mutate(P = 1 - exp(-f*q*I*t/n)) %>%
   mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania")),
-         sc = factor(sc, levels = c("Low", "Median", "High"))) %>%
-  ggplot(aes(x = sc, y = P)) +
-  stat_interval(aes(color = country, color_ramp = after_stat(rev(.width))), position = position_dodge(width = .5)) +
-  stat_summary(aes(x = sc, y = P, color = country), geom = "point", fun = "median", 
-               position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
-  scale_y_continuous(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0.05)), limits = c(0,1)) +
-  scale_x_discrete(labels = c(expression(atop("Andrews et al.; Low", q*' = 0.44'~'h'^-1)), 
-                              expression(atop("This study; Median", q*' = 3.57'~'h'^-1)),
-                              expression(atop("Andrews et al.; High", q*' = 5.69'~'h'^-1)))) +
+         scenario = factor(scenario, levels = c("Low", "Medium", "High")))
+
+ggplot(mapping = aes(x = scenario, y = P, fill = country)) +
+  geom_errorbar(data = df %>%
+                  dplyr::select(country, scenario, P) %>%
+                  group_by(country, scenario) %>%
+                  median_qi(),
+                mapping = aes(ymin = .lower, ymax = .upper, color = country),
+                position = position_dodge(width = .5),
+                width = .3) +
+  geom_boxplot(data = df, 
+               position = position_dodge(width = .5),
+               outlier.shape = NA, coef = 0, width = 0.3) +
+  scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
+               limits = c(0,1), breaks = seq(0, 1, .2)^2) +
+  scale_x_discrete(labels = c("Low", "Medium", "High"), expand = expansion(add = c(.33, .33))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
-  ggdist::scale_color_ramp_continuous() +
-  labs(y = "Risk of infection (%)", color_ramp = "Interval", color = "",
-       title = "Modeled risk of Mtb transmission",
-       subtitle = "Annual risk for t=919 school-hours by country",
-       caption = "Median as dots, 50%-, 80%-, and 95%-CI as ribbons.") +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  labs(y = "Annual risk of infection (%, square-root scale)", 
+       x = "Activity level in the classroom",
+       color = '',
+       fill = '') +
   theme_custom() +
-  theme(axis.title.x = element_blank(),
-        legend.position = "top",
+  theme(legend.position = "top",
         plot.title.position = "plot",
-        legend.box = "vertical") +
-  guides(color_ramp = "none", 
-         color = guide_legend(order = 1))
+        legend.box = "vertical") 
 
 ggsave("results/example-mtb-visualization.png", width = 12 / cm(1), height = 8 / cm(1))  

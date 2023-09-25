@@ -93,9 +93,9 @@ ACH.sa <- tibble(day = 1:35,
 
 ACH <- bind_rows(ACH.sa, ACH.ch, ACH.tz) %>% 
   mutate(country = c("South Africa", "Switzerland", "Tanzania")) %>% 
-  select(country, everything())
+  dplyr::select(country, everything())
 
-saveRDS(ACH, "results/co2/ACH.rds")
+write_csv(ACH, "results/co2/ACH.csv")
 
 #### Calculation rebreathed air fraction (f) -----------------------------------
 
@@ -105,6 +105,74 @@ f.tz = f(co2.tz)
 
 f <- bind_rows(f.sa, f.ch, f.tz) %>% 
   mutate(country = rep(c("South Africa", "Switzerland", "Tanzania"), each = 2)) %>% 
-  select(country, everything())
+  dplyr::select(country, everything())
 
-saveRDS(f, "results/co2/f.rds")
+write_csv(f, "results/co2/f.csv")
+
+# Mean and SD of daily means of f #
+
+mean.f_daily.ch <- co2.ch %>% 
+  group_by(date) %>% 
+  summarise(mean = mean(co2)) %>% 
+  ungroup() %>% 
+  mutate(f = ((mean - C_o) / C_a) / 1000000)
+
+meanfdailych <- mean.f_daily.ch %>% 
+  summarise(mean_dailymeans_f = mean(f),
+            sd_dailymeans_f = sd(f))
+
+mean.f_daily.tz <- co2.tz %>% 
+  group_by(date) %>% 
+  summarise(mean = mean(co2)) %>% 
+  mutate(f = ((mean - C_o) / C_a) / 1000000) 
+
+meanfdailytz <- mean.f_daily.tz %>% 
+  summarise(mean_dailymeans_f = mean(f),
+            sd_dailymeans_f = sd(f))
+
+#'different approach for South Africa, as the date isn't included in the dataset
+#'described in the methods section
+
+ecdf.ch <- ecdf(co2.ch$co2)
+
+mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$mean, ecdf.ch)
+
+mean.f_daily.sa <- tibble(day = 1:35,
+                          mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
+  mutate(f = ((mean - C_o) / C_a) / 1000000)
+
+meanfdailysa <- mean.f_daily.sa %>% 
+  summarise(mean_dailymeans_f = mean(f),
+            sd_dailymeans_f = sd(f))
+
+meanfdaily <- bind_rows(meanfdailysa, meanfdailych, meanfdailytz)
+
+write_csv(meanfdaily, "results/co2/daily_means_f.csv")
+
+# Mean and sd of daily maxes of Co2 #
+
+max_tz <- co2.tz %>% 
+  group_by(date) %>% 
+  summarise(co2.max = max(co2)) %>% 
+  ungroup() %>% 
+  summarise(mean = mean(co2.max),
+            sd = sd(co2.max)) %>% 
+  mutate(country = "Tanzania")
+
+max_ch <- co2.ch %>% 
+  group_by(date) %>% 
+  summarise(co2.max = max(co2)) %>% 
+  ungroup() %>% 
+  summarise(mean = mean(co2.max),
+            sd = sd(co2.max)) %>% 
+  mutate(country = "Switzerland")
+
+max_sa <- tibble(day = 1:35,
+                 co2.max = quantile(co2.sa$co2, max.ch$quantile)) %>% 
+  summarise(mean = mean(co2.max),
+            sd = sd(co2.max)) %>% 
+  mutate(country = "South Africa")
+
+max <- bind_rows(max_sa, max_ch, max_tz)
+
+write_csv(max, "results/co2/max.csv")

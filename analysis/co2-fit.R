@@ -223,3 +223,61 @@ ggsave(plot = plot.co2,
        width = 8 ,
        height = 5 
        )
+
+library(wesanderson)
+
+## Plotting raw data only ##
+mean(co2.sa$co2)
+
+plot.sa <- co2.sa %>% 
+  ggplot(aes(x = co2)) +
+  geom_histogram(aes(y =..density..), color = "black", fill = wes_palette("Moonrise2")[1], bins = 30) +
+  scale_y_continuous(limits = c(0, 0.001), expand = c(0,0), labels = function(x) sprintf("%.4f", x)) +
+  scale_x_continuous(limits = c(400, 4000), expand = c(0,0), labels = scales::comma) +
+  coord_cartesian(xlim = c(400,3500))+
+  labs(x = "", y = "Density") +
+  theme_classic() +
+  ggtitle("South Africa") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  annotate("text", x = 2840, y = 0.000965, label = "Mean = 1,626 ppm", size = 3, hjust = 0.7, vjust = 1)
+
+mean(co2.ch$co2)
+
+plot.ch <- co2.ch %>% 
+  ggplot(aes(x = co2)) +
+  geom_histogram(aes(y =..density..), color = "black", fill = wes_palette("Moonrise2")[2], bins = 30) +
+  scale_y_continuous(limits = c(0, 0.001), expand = c(0,0), labels = function(x) sprintf("%.4f", x)) +
+  scale_x_continuous(limits = c(400, 4000), expand = c(0,0), labels = scales::comma) +
+  labs(x = expression(CO[2]*" (ppm)"), y = "") +
+  coord_cartesian(xlim = c(400,3500))+
+  theme_classic() +
+  ggtitle("Switzerland") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  annotate("text", x = 2840, y = 0.000965, label = "Mean = 1,802 ppm", size = 3, hjust = 0.7, vjust = 1)
+
+mean(co2.tz$co2)
+
+plot.tz <- co2.tz %>% 
+  ggplot(aes(x = co2)) +
+  geom_histogram(aes(y =..density..), color = "black", fill = wes_palette("Moonrise2")[3], bins = 30) +
+  scale_y_continuous(limits = c(0, 0.006), expand = c(0,0), labels = function(x) sprintf("%.4f", x)) +
+  scale_x_continuous(limits = c(400, 4000), expand = c(0,0), labels = scales::comma) +
+  labs(x = expression(CO[2]*" (ppm)"), y = "Density") +
+  coord_cartesian(xlim = c(400,3500))+
+  theme_classic() +
+  ggtitle("Tanzania") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  annotate("text", x = 2850, y = 0.0058, label = "Mean = 648 ppm", size = 3, hjust = 0.75, vjust = 1)
+
+# together #
+
+plot.co2.raw <- grid.arrange(plot.sa,plot.ch,plot.tz, ncol = 2)
+
+# save #
+
+ggsave(plot = plot.co2.raw, 
+       filename = "results/co2/co2-distr_raw.png", 
+       width = 8 ,
+       height = 5 
+)
+

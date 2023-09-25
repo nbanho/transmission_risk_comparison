@@ -38,14 +38,60 @@ f.sa <- f(co2.sa)
 f.ch <- f(co2.ch)
 f.tz <- f(co2.tz)
 
-f_bar.sa <- f.sa$mean
-f_bar.sens.sa <- f.sa$mean.sens
+# Main analysis #
 
-f_bar.ch <- f.ch$mean
-f_bar.sens.ch <- f.ch$mean.sens
+f_bar.sa <- f.sa %>% 
+  filter(scenario == "main") %>% 
+  pull(mean)
 
-f_bar.tz <- f.tz$mean
-f_bar.sens.tz <- f.tz$mean.sens
+f_bar.ch <- f.ch %>% 
+  filter(scenario == "main") %>% 
+  pull(mean)
+
+f_bar.tz <- f.tz %>% 
+  filter(scenario == "main") %>% 
+  pull(mean)
+
+# Additional analysis (outbreak) #
+
+mean.f_daily.ch <- co2.ch %>% 
+  group_by(date) %>% 
+  summarise(mean = mean(co2)) %>% 
+  mutate(f = ((mean - C_o) / C_a) / 1000000)
+
+mean.f_daily.tz <- co2.tz %>% 
+  group_by(date) %>% 
+  summarise(mean = mean(co2)) %>% 
+  mutate(f = ((mean - C_o) / C_a) / 1000000)
+
+#'different approach for South Africa, as the date isn't included in the dataset
+#'described in the methods section
+
+ecdf.ch <- ecdf(co2.ch$co2)
+
+mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$mean, ecdf.ch)
+
+mean.f_daily.sa <- tibble(day = 1:35,
+                          mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
+  mutate(f = ((mean - C_o) / C_a) / 1000000)
+
+f.sample.sa <- sample(mean.f_daily.sa$f , size = 9000, replace = TRUE)
+f.sample.ch <- sample(mean.f_daily.ch$f , size = 9000, replace = TRUE)
+f.sample.tz <- sample(mean.f_daily.tz$f , size = 9000, replace = TRUE)
+
+# Sensitivity analysis (outdoor CO2) #
+
+f_bar.sens.sa <- f.sa %>% 
+  filter(scenario == "sensitivity") %>% 
+  pull(mean)
+
+f_bar.sens.ch <- f.ch %>% 
+  filter(scenario == "sensitivity") %>% 
+  pull(mean)
+
+f_bar.sens.tz <- f.tz %>% 
+  filter(scenario == "sensitivity") %>% 
+  pull(mean)
 
 ### n (number of students) ----
 
@@ -55,97 +101,64 @@ n.tz = 50
 
 ### t (time) ----
 
-day = 7
-week = 7*5
+day = 6
+week = day*5
 month = week*4
-year = month*10
+year = 919
 
 ### q (Quanta) ----
 
 # Distribution # 
 
-q <- ERq(pathogen = "SARS-CoV-2", n = n.sample, pa = p_activ)
+q.sars.low <- ERq("SARS-CoV-2", n.sample, pa = p_low)
+q.sars.med <- ERq("SARS-CoV-2", n.sample, pa = p_med)
+q.sars.high <- ERq("SARS-CoV-2", n.sample, pa = p_high)
 
-# Fixed estimates #
-
-q.sample <- ERq(pathogen = "SARS-CoV-2", n = 1e6, pa = p_activ)
-q.ann <- quantile(q.sample, c(.33, .5, .66))
-scenario <- c("Low", "Median", "High")
-q.med <- median(q.sample)
+q_long <- tibble(
+  country = rep(c("South Africa", "Switzerland", "Tanzania"), each = n.sample * 3),
+  scenario = rep(rep(c("Low", "Medium", "High"), each = n.sample), times = 3),
+  q = rep(c(unlist(q.sars.low), unlist(q.sars.med), unlist(q.sars.high)),3)
+)
 
 ### I (infectious students) ----
 
-# IFR (Lancet) #
-
-ifr <- tibble(country = c(rep("SA", 4), rep("CH", 4), rep("TZ", 4)),
-              period = rep(c("April", "July", "October", "January"), 3),
-              IFR = c(0.511, 0.400, 0.348, 0.331, 1.687, 1.322, 1.164, 1.113, 0.169, 0.133, 0.116, 0.111),
-              IFR.low = c(0.199, 0.173, 0.145, 0.137, 1.202, 0.943, 0.835, 0.766, 0.071, 0.060, 0.057, 0.052),
-              IFR.high = c(1.275, 0.987, 0.774, 0.724, 2.782, 2.148, 1.743, 1.621, 0.339, 0.256, 0.218, 0.193)) %>% 
-  mutate_at(vars(starts_with("IFR")), ~ . / 100) %>% 
-  mutate(mean = IFR,
-         sd = (IFR.high - IFR.low) / 2* 1.96)
-
-# excess mortality #
-
-excess <- read.csv("data-clean/export_country_per_100k_cumulative.csv") %>% 
-  filter(iso3c %in% c("ZAF", "CHE", "TZA")) %>% 
-  mutate(date = ymd(date)) %>%        # Convert date column to date format
-  filter(date <= ymd("2020-12-31")) %>% 
-  mutate(period = case_when(
-    date >= ymd("2020-03-01") & date <= ymd("2020-04-15") ~ "April",
-    date >= ymd("2020-04-16") & date <= ymd("2020-07-15") ~ "July",
-    date >= ymd("2020-07-16") & date <= ymd("2020-10-15") ~ "October",
-    date >= ymd("2020-10-16") & date <= ymd("2020-12-31") ~ "January",
-    TRUE ~ NA_character_),
-  country = case_when(iso3c == "CHE" ~ "CH",
-                      iso3c == "ZAF" ~ "SA",
-                      iso3c == "TZA" ~ "TZ")) %>% 
-  select(country, date, period, cumulative_estimated_daily_excess_deaths_per_100k, 
-         cumulative_estimated_daily_excess_deaths_ci_95_top_per_100k, 
-         cumulative_estimated_daily_excess_deaths_ci_95_bot_per_100k) %>% 
-  rename(weekly.per100k = cumulative_estimated_daily_excess_deaths_per_100k,
-         weekly.per100k.low = cumulative_estimated_daily_excess_deaths_ci_95_bot_per_100k,
-         weekly.per100k.high = cumulative_estimated_daily_excess_deaths_ci_95_top_per_100k) %>% 
-  mutate(mean = weekly.per100k,
-         sd = (weekly.per100k.high - weekly.per100k.low) / 2* 1.96) %>% 
-  group_by(country, period) %>% 
-  summarise(mean = mean(weekly.per100k),
-            sd = sd(weekly.per100k))
-
 # prevalence #
 
-prev.april.sa <- simulate_excess("SA", "April")
-prev.july.sa <- simulate_excess("SA", "July")
-prev.october.sa <- simulate_excess("SA", "October")
-prev.january.sa <- simulate_excess("SA", "January")
+prev.sa <- simulate_excess("SA")
+prev.ch <- simulate_excess("CH")
+prev.tz <- simulate_excess("TZ")
 
-prev.april.ch <- simulate_excess("CH", "April")
-prev.july.ch <- simulate_excess("CH", "July")
-prev.october.ch <- simulate_excess("CH", "October")
-prev.january.ch <- simulate_excess("CH", "January")
+write_csv(prev.sa, "results/prevalence/draws.sa.csv")
+write_csv(prev.ch, "results/prevalence/draws.ch.csv")
+write_csv(prev.tz, "results/prevalence/draws.tz.csv")
 
-prev.april.tz <- simulate_excess("TZ", "April")
-prev.july.tz <- simulate_excess("TZ", "July")
-prev.october.tz <- simulate_excess("TZ", "October")
-prev.january.tz <- simulate_excess("TZ", "January")
+# calculating I #
 
-# Infectious persons in classroom per period # 
+I.sa <- prev.sa %>%
+  group_by(draw) %>% 
+  summarise(mean.prev = mean(draw_prev_per100k)) %>% 
+  mutate(I_weekly = mean.prev / 100000 * n.sa,
+         country = "SA")
 
-I.april.sa <- prev.april.sa$ratio_draw / 100000 * n.sa
-I.july.sa <- prev.july.sa$ratio_draw / 100000 * n.sa
-I.october.sa <- prev.october.sa$ratio_draw / 100000 * n.sa
-I.january.sa <- prev.january.sa$ratio_draw / 100000 * n.sa
+I.ch <- prev.ch %>%
+  group_by(draw) %>% 
+  summarise(mean.prev = mean(draw_prev_per100k)) %>% 
+  mutate(I_weekly = mean.prev / 100000 * n.ch,
+         country = "CH")
 
-I.april.ch <- prev.april.ch$ratio_draw / 100000 * n.ch
-I.july.ch <- prev.july.ch$ratio_draw / 100000 * n.ch
-I.october.ch <- prev.october.ch$ratio_draw / 100000 * n.ch
-I.january.ch <- prev.january.ch$ratio_draw / 100000 * n.ch
+I.tz <- prev.tz %>%
+  group_by(draw) %>% 
+  summarise(mean.prev = mean(draw_prev_per100k)) %>% 
+  mutate(I_weekly = mean.prev / 100000 * n.tz,
+         country = "TZ")
 
-I.april.tz <- prev.april.tz$ratio_draw / 100000 * n.tz
-I.july.tz <- prev.july.tz$ratio_draw / 100000 * n.tz
-I.october.tz <- prev.october.tz$ratio_draw / 100000 * n.tz
-I.january.tz <- prev.january.tz$ratio_draw / 100000 * n.tz
+I.results <- bind_rows(I.sa, I.ch, I.tz) %>% 
+  group_by(country) %>% 
+  summarise(lowCI_weekly = quantile(I_weekly, 0.025),
+            median_weekly = median(I_weekly),
+            highCI_weekly = quantile(I_weekly, 0.975))
+
+write_csv(I.results, "results/prevalence/I_weekly.csv")
 
 # Additional analysis #
 
@@ -153,247 +166,173 @@ I.sa.add = 1
 I.ch.add = 1 / n.sa * n.ch
 I.tz.add = 1 / n.sa * n.tz
 
-#### Results  --------------------------------------------------------
+# Sensitivity analyis (reported cases) #
 
-data <- tibble(country = c(rep("SA", n.sample), rep("CH", n.sample), rep("TZ", n.sample)),
-               I.april = c(I.april.sa, I.april.ch, I.april.tz),
-               I.july = c(I.july.sa, I.july.ch, I.july.tz),
-               I.october = c(I.october.sa, I.october.ch, I.october.tz),
-               I.january = c(I.january.sa, I.january.ch, I.january.tz),
-               I.add = c(rep(I.sa.add, 3000), rep(I.ch.add, 3000), rep(I.tz.add, 3000)),
-               n = c(rep(n.sa, n.sample), rep(n.ch, n.sample), rep(n.tz, n.sample)),
-               f = c(rep(f_bar.sa, n.sample), rep(f_bar.ch, n.sample), rep(f_bar.tz, n.sample)),
-               f.sens = c(rep(f_bar.sens.sa, n.sample), rep(f_bar.sens.ch, n.sample), rep(f_bar.sens.tz, n.sample)),
-               q = rep(sample.q,3),
-               q100 = rep(sample.q.trunc100,3),
-               q200 = rep(sample.q.trunc200,3),
-               q300 = rep(sample.q.trunc300,3),
-               q1 = q1,
-               q2 = q2,
-               q3 = q3,
-               t = month,
-               t.add = day,
-               P.add = 1 - exp(-(f * I.add * q * t.add) / n),
-               P.add100 = 1 - exp(-(f * I.add * q100 * t.add) / n),
-               P.add200 = 1 - exp(-(f * I.add * q200 * t.add) / n),
-               P.add300 = 1 - exp(-(f * I.add * q300 * t.add) / n),
-               P.april1 = 1 - exp(-(f * I.april * q1 * t) / n),
-               P.july1 = 1 - exp(-(f * I.july * q1 * t) / n),
-               P.october1 = 1 - exp(-(f * I.october * q1 * t) / n),
-               P.january1 = 1 - exp(-(f * I.january * q1 * t) / n),
-               P.april2 = 1 - exp(-(f * I.april * q2 * t) / n),
-               P.july2 = 1 - exp(-(f * I.july * q2 * t) / n),
-               P.october2 = 1 - exp(-(f * I.october * q2 * t) / n),
-               P.january2 = 1 - exp(-(f * I.january * q2 * t) / n),
-               P.april3 = 1 - exp(-(f * I.april * q3 * t) / n),
-               P.july3 = 1 - exp(-(f * I.july * q3 * t) / n),
-               P.october3 = 1 - exp(-(f * I.october * q3 * t) / n),
-               P.january3 = 1 - exp(-(f * I.january * q3 * t) / n))
+reported <- read.csv("https://covid19.who.int/WHO-COVID-19-global-data.csv") %>% 
+  filter(Country %in% c("South Africa", "Switzerland", "Tanzania"),
+         Date_reported >= ymd("2020-03-01") & Date_reported <= ymd("2021-01-31")) %>% 
+  mutate(Date_reported = ymd(Date_reported)) %>%  # Convert Date_reported to a date object
+  mutate(week_start = floor_date(Date_reported, unit = "week"))
+
+
+I.sens.ch <- sample(reported %>% 
+                              filter(Country == "Switzerland") %>%
+                              group_by(week_start) %>% 
+                              summarise(cases_weekly = sum(New_cases)) %>% 
+                              pull(cases_weekly), size = 3000, replace = TRUE)/ 8700000 * n.ch
+
+I.sens.sa <- sample(reported %>% 
+                              filter(Country == "South Africa") %>% 
+                              group_by(week_start) %>% 
+                              summarise(cases_weekly = sum(New_cases)) %>% 
+                              pull(cases_weekly), size = 3000, replace = TRUE) / 59390000 * n.sa
+
+#### Results  ------------------------------------------------------------------
 
 # Main analysis #
 
-summary.april <- data %>%
-  pivot_longer(
-    cols = starts_with("P.april"),
-    names_to = "period",
-    values_to = "P_value"
-  ) %>%
-  mutate(country = factor(country, levels = country.order)) %>%
-  group_by(country, period) %>%
-  summarise(
-    ymin = quantile(P_value, 0.025),
-    lower = quantile(P_value, 0.25),
-    middle = quantile(P_value, 0.5),
-    upper = quantile(P_value, 0.75),
-    ymax = quantile(P_value, 0.975)
-  )
+df.main <- tibble(
+  country = rep(c("South Africa", "Switzerland", "Tanzania"), 
+                each = n.sample * 3),
+  I = rep(c(I.sa$I_weekly, I.ch$I_weekly, I.tz$I_weekly), each = 3),
+  n = rep(c(n.sa, n.ch, n.tz), 
+          each = n.sample * 3),
+  f = rep(c(f_bar.sa, f_bar.ch, f_bar.tz), 
+          each = n.sample * 3),
+  t = month,
+  q = q_long$q,
+  sc = q_long$scenario) %>% 
+  mutate(P = 1 - exp(-f*q*I*t/n))
 
-april <- ggplot(summary.april, aes(x = country, y = middle, color = period)) + 
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), 
-               stat = "identity", width = 0.5, position = position_dodge(width = 0.6), alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  ylab("") +
-  theme_bw() +
-  guides(fill = guide_legend(title = "Country")) +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel",  # This puts the title in the center of the plot area
-        legend.position = "bottom") +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "April")
+plottingMtb(df.main) +
+  ylab("Monthly risk of infection (%, square-root scale)")
 
-summary.july <- data %>%
-  pivot_longer(
-    cols = starts_with("P.july"),
-    names_to = "period",
-    values_to = "P_value"
-  ) %>%
-  mutate(country = factor(country, levels = country.order)) %>%
-  group_by(country, period) %>%
-  summarise(
-    ymin = quantile(P_value, 0.025),
-    lower = quantile(P_value, 0.25),
-    middle = quantile(P_value, 0.5),
-    upper = quantile(P_value, 0.75),
-    ymax = quantile(P_value, 0.975)
-  )
+ggsave("results/SARS-CoV-2/sars-main.png", width = 12 / cm(1), height = 8 / cm(1))  
 
-july <- ggplot(summary.july, aes(x = country, y = middle, color = period)) + 
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), 
-               stat = "identity", width = 0.5, position = position_dodge(width = 0.6), alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  ylab("") +
-  theme_bw() +
-  guides(fill = guide_legend(title = "Country")) +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel",  # This puts the title in the center of the plot area
-        legend.position = "bottom") +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "July")
+results.main <- results(df.main)
 
-summary.october <- data %>%
-  pivot_longer(
-    cols = starts_with("P.october"),
-    names_to = "period",
-    values_to = "P_value"
-  ) %>%
-  mutate(country = factor(country, levels = country.order)) %>%
-  group_by(country, period) %>%
-  summarise(
-    ymin = quantile(P_value, 0.025),
-    lower = quantile(P_value, 0.25),
-    middle = quantile(P_value, 0.5),
-    upper = quantile(P_value, 0.75),
-    ymax = quantile(P_value, 0.975)
-  )
+write_csv(results.main, "results/SARS-CoV-2/main.csv")
 
-october <- ggplot(summary.october, aes(x = country, y = middle, color = period)) + 
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), 
-               stat = "identity", width = 0.5, position = position_dodge(width = 0.6), alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  ylab("") +
-  theme_bw() +
-  guides(fill = guide_legend(title = "Country")) +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel",  # This puts the title in the center of the plot area
-        legend.position = "bottom") +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "October")
+# Additional analysis: fixed I/n / day / sampling daily means of f #
 
-summary.january <- data %>%
-  pivot_longer(
-    cols = starts_with("P.january"),
-    names_to = "period",
-    values_to = "P_value"
-  ) %>%
-  mutate(country = factor(country, levels = country.order)) %>%
-  group_by(country, period) %>%
-  summarise(
-    ymin = quantile(P_value, 0.025),
-    lower = quantile(P_value, 0.25),
-    middle = quantile(P_value, 0.5),
-    upper = quantile(P_value, 0.75),
-    ymax = quantile(P_value, 0.975)
-  )
+df.add <- tibble(
+  country = rep(c("South Africa", "Switzerland", "Tanzania"), 
+                each = n.sample * 3),
+  I = rep(c(I.sa.add, I.ch.add, I.tz.add),
+          each = n.sample * 3),
+  n = rep(c(n.sa, n.ch, n.tz), 
+          each = n.sample * 3),
+  f = c(f.sample.sa, f.sample.ch, f.sample.tz),
+  t = week,
+  q = q_long$q,
+  sc = q_long$scenario) %>% 
+  mutate(P = 1 - exp(-f*q*I*t/n))
 
-january <- ggplot(summary.january, aes(x = country, y = middle, color = period)) + 
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), 
-               stat = "identity", width = 0.5, position = position_dodge(width = 0.6), alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  ylab("") +
-  theme_bw() +
-  guides(fill = guide_legend(title = "Country")) +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel",  # This puts the title in the center of the plot area
-        legend.position = "bottom") +
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "January")
+plottingMtb(df.add) +
+  labs(y = "Weekly risk of infection (%, square-root scale)")
 
-months.plot <- gridExtra::grid.arrange(april, july, october, january, ncol = 2)
-ggsave(plot = months.plot, filename = "results/scenarios/sars.main.png")
+ggsave("results/SARS-CoV-2/sars.add.png", width = 12 / cm(1), height = 8 / cm(1))  
 
-# Additional analysis: fixed I/n / day / quanta distribution #
+results.add <- results(df.add)
 
-summary.add <- summarize("P.add")
+write_csv(results.add, "results/SARS-CoV-2/add.csv")
 
-additional <- ggplot(summary.add, aes(x = country, y = middle, fill = country)) +
-  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.2, color = "grey") +
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), stat = "identity", width = 0.5, alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  theme_bw() +
-  guides(fill = "none") +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel") +  # This puts the title in the center of the plot area
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "",
-       y = "",
-       x = "")
+# Sensitivity analysis (Incidence): Comparing IFR-approach / reported incidence all age / reported incidence young people
 
-# Additional analysis: fixed I/n / day / quanta distribution (trunc 100) #
+df.sens.prev <- tibble(
+  country = rep(c("South Africa", "Switzerland", "Tanzania"), 
+                each = n.sample * 3),
+  I = rep(c(I.sa$I_weekly, I.ch$I_weekly, I.tz$I_weekly), each = 3),
+  I.sens = rep(c(I.sens.sa, I.sens.ch, rep(0, 3000)), each = 3),
+  n = rep(c(n.sa, n.ch, n.tz), 
+          each = n.sample * 3),
+  f = rep(c(f_bar.sa, f_bar.ch, f_bar.tz), 
+          each = n.sample * 3),
+  t = month,
+  q = rep(q.sars.med, 3*3)) %>% 
+  mutate(P = 1 - exp(-f*q*I*t/n),
+         P.sens = 1 - exp(-f*q*I.sens*t/n))
 
-summary.add100 <- summarize("P.add100")
+df.long <- df.sens.prev %>% 
+  pivot_longer(cols = c(P, P.sens), 
+               names_to = "variable", 
+               values_to = "value")
 
-additional100 <- ggplot(summary.add100, aes(x = country, y = middle, fill = country)) +
-  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.2, color = "grey") +
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), stat = "identity", width = 0.5, alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  theme_bw() +
-  guides(fill = "none") +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel") +  # This puts the title in the center of the plot area
-  coord_cartesian(ylim = c(0, 1))+
-  labs(title = "Quanta truncated at 100 q/h",
-       y = "",
-       x = "")
+ggplot(mapping = aes(x = factor(variable, levels = c("P", "P.sens")), y = value, fill = country)) +
+  geom_errorbar(data = df.long %>% 
+                  dplyr::select(country, variable, value) %>% 
+                  group_by(country, variable) %>% 
+                  median_qi(),
+                mapping = aes(ymin = .lower, ymax = .upper, color = country),
+                position = position_dodge(width = .5),
+                width = .3) +
+  geom_boxplot(data = df.long, 
+               position = position_dodge(width = .5),
+               outlier.shape = NA, coef = 0, width = 0.3) +
+  stat_summary(data = df.long,
+               mapping = aes(x = variable, y = value, color = country), geom = "point", fun = "median", 
+               position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
+  scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
+               limits = c(0,1), breaks = seq(0, 1, .2)^2) +
+  scale_x_discrete(labels = c("IFR", "Reported cases"), expand = expansion(add = c(.33, .33))) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  labs(y = "Monthly risk of infection (%, square-root scale)", 
+       x = "Method of estimating number of infectious students",
+       color = '',
+       fill = '') +
+  theme_custom() +
+  theme(legend.position = "top",
+        plot.title.position = "plot",
+        legend.box = "vertical") 
 
-# Additional analysis: fixed I/n / day / quanta distribution (trunc 200) #
+ggsave("results/SARS-CoV-2/sars.sens_prev.png", width = 12 / cm(1), height = 8 / cm(1))  
 
-summary.add200 <- summarize("P.add200")
+results.add <- results(df.add)
 
-additional200 <- ggplot(summary.add200, aes(x = country, y = middle, fill = country)) +
-  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.2, color = "grey") +
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), stat = "identity", width = 0.5, alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  theme_bw() +
-  guides(fill = "none") +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel") +  # This puts the title in the center of the plot area
-  coord_cartesian(ylim = c(0, 1)) +
-  labs(title = "Quanta truncated at 200 q/h",
-       y = "",
-       x = "")
+write_csv(results.add, "results/SARS-CoV-2/add.csv")
 
-# Additional analysis: fixed I/n / day / quanta distribution (trunc 300) #
+# Sensitivity analysis (Outdoor CO2): Comparing 600 ppm vs 400 ppm #
 
-summary.add300 <- summarize("P.add300")
+df.sens.co2.sa <- sens.df.sars("South Africa")
+df.sens.co2.ch <- sens.df.sars("Switzerland")
+df.sens.co2.tz <- sens.df.sars("Tanzania")
 
-additional300 <- ggplot(summary.add300, aes(x = country, y = middle, fill = country)) +
-  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.2, color = "grey") +
-  geom_boxplot(aes(lower = lower, upper = upper, middle = middle, ymin = ymin, ymax = ymax), stat = "identity", width = 0.5, alpha = 1, outlier.shape = NA) +
-  scale_y_continuous(labels = function(x) paste0(x * 100, "%"), expand = c(0, 0)) +
-  scale_fill_manual(values = c("#B0C4DE", "#FFA07A", "#FFDEAD")) +
-  theme_bw() +
-  guides(fill = "none") +
-  theme(axis.title.x = element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 10),  # This ensures the title is centered
-        plot.title.position = "panel") +  # This puts the title in the center of the plot area
-  coord_cartesian(ylim = c(0, 1))+
-  labs(title = "Quanta truncated at 300 q/h",
-       y = "",
-       x = "")
+df.sens.co2 <- bind_rows(df.sens.co2.sa, df.sens.co2.ch, df.sens.co2.tz) 
 
-additional300
+df.sens.co2 %>% 
+  mutate(sens = factor(sens, levels = c("South Africa", "Switzerland", "Tanzania"))) %>% 
+  ggplot(mapping = aes(x = sens, y = P, fill = country, shape = type)) +
+  geom_errorbar(data = df.sens.co2 %>% 
+                  dplyr::select(country, sens, P, type) %>% 
+                  group_by(country, sens, type) %>% 
+                  median_qi(),
+                mapping = aes(ymin = .lower, ymax = .upper, color = country),
+                position = position_dodge(width = .5),
+                width = .3) +
+  geom_boxplot(data = df.sens.co2, 
+               position = position_dodge(width = .5),
+               outlier.shape = NA, coef = 0, width = 0.3) +
+  stat_summary(data = df.sens.co2,
+               mapping = aes(x = sens, y = P, color = country), geom = "point", fun = "median", 
+               position = position_dodge2(width = .5), size = 2, fill = "white") +
+  scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
+               limits = c(0,1), breaks = seq(0, 1, .2)^2) +
+  scale_x_discrete(labels = c("South Africa", "Switzerland", "Tanzania"), expand = expansion(add = c(.33, .33))) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  scale_shape_manual(values=c(23, 24), name = expression("Outdoor" ~ CO[2]- ~ "Level")) +  
+  labs(y = "Monthly risk of infection (%, square-root scale)", 
+       x = "",
+       color = '',
+       fill = '') +
+  theme_custom() +
+  theme(legend.position = "top",
+        plot.title.position = "plot",
+        legend.box = "vertical") 
 
-plot <- gridExtra::grid.arrange(additional, additional100, additional200, additional300, ncol = 2)
+ggsave("results/Mtb/mtb-sens.co2.png", width = 12 / cm(1), height = 8 / cm(1))  
 
-ggsave(plot =  plot , filename = "results/scenarios/sars.outbreak.png")
+results.sens.co2 <- results(df.sens.co2)
 
+write_csv(results.sens.co2, "results/SARS-CoV-2/sens_co2.csv")

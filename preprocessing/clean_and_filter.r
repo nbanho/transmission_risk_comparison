@@ -41,3 +41,34 @@ ch <- read_csv("data-raw/co2-ch.csv") %>%
   dplyr::select(country, class, date, time, time_h, co2)
 
 saveRDS(ch, "data-clean/co2-ch.rds")
+
+#### Excess deaths file ####
+
+excess <- read.csv("data-raw/export_country_per_100k.csv")  %>% 
+  filter(iso3c %in% c("ZAF", "CHE", "TZA")) %>% 
+  mutate(date = ymd(date)) %>%        # Convert date column to date format
+  filter(date <= ymd("2021-01-31") & date >= ymd("2020-03-01")) %>% 
+  mutate(period = case_when(
+    date >= ymd("2020-03-01") & date <= ymd("2020-05-31") ~ "April",
+    date >= ymd("2020-06-01") & date <= ymd("2020-08-31") ~ "July",
+    date >= ymd("2020-09-01") & date <= ymd("2020-11-30") ~ "October",
+    date >= ymd("2020-12-01") & date <= ymd("2021-01-31") ~ "January",
+    TRUE ~ NA_character_),
+    country = case_when(iso3c == "CHE" ~ "CH",
+                        iso3c == "ZAF" ~ "SA",
+                        iso3c == "TZA" ~ "TZ")) %>% 
+  dplyr::select(country, date, period, estimated_daily_excess_deaths_per_100k, 
+                estimated_daily_excess_deaths_ci_95_top_per_100k, 
+                estimated_daily_excess_deaths_ci_95_bot_per_100k) %>% 
+  mutate(weekly.per100k = estimated_daily_excess_deaths_per_100k * 7,
+         weekly.per100k.low = estimated_daily_excess_deaths_ci_95_bot_per_100k * 7,
+         weekly.per100k.high = estimated_daily_excess_deaths_ci_95_top_per_100k * 7) %>% 
+  mutate(mean = weekly.per100k,
+         sd = (weekly.per100k.high - weekly.per100k.low) / 2* 1.96) %>% 
+  group_by(country, period) %>% 
+  summarise(mean = mean(weekly.per100k),
+            sd = sd(weekly.per100k),
+            lowCI = min(weekly.per100k.low),
+            highCI = min(weekly.per100k.high))
+
+write_csv(excess, "results/prevalence/excess.csv")

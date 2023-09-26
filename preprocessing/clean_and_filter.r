@@ -76,14 +76,13 @@ saveRDS(excess, "data-clean/excess.rds")
 
 #### reported cases ####
 
-reported <- read.csv("https://covid19.who.int/WHO-COVID-19-global-data.csv") %>% 
+reported <- read.csv("data-raw/WHO-COVID-19-global-data.csv") %>% 
   filter(Country %in% c("South Africa", "Switzerland", "Tanzania"),
          Date_reported >= ymd("2020-03-01") & Date_reported <= ymd("2021-01-31")) %>% 
   mutate(Date_reported = ymd(Date_reported)) %>%  # Convert Date_reported to a date object
   mutate(week_start = floor_date(Date_reported, unit = "week"))
 
 saveRDS(reported, "data-clean/reported_weekly.rds")
-
 
 #### reported cases Switzerland ####
 

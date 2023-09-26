@@ -238,9 +238,14 @@ plottingSars <- function(df) {
 results <- function(df){
   
   df %>% 
-    group_by(country) %>% 
-    dplyr::summarise(lowerCI = round(quantile(P, 0.025),3),
-                     median = round(median(P), 3),
-                     upperCI = round(quantile(P, 0.975),3))
+    group_by_at(vars(one_of(c("country", "sc")))) %>% 
+    dplyr::summarise(
+      Q50 = quantile(P, .5),
+      Q25 = quantile(P, .25),
+      Q75 = quantile(P, .75),
+      Q2.5 = quantile(P, 0.025),
+      Q97.5 = quantile(P, 0.975)
+    ) %>%
+    mutate_if(is.numeric, function(x) round(x * 100, 1))
   
 }

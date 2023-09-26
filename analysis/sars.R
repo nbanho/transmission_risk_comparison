@@ -68,12 +68,13 @@ mean.f_daily.tz <- co2.tz %>%
 #'described in the methods section
 
 ecdf.ch <- ecdf(co2.ch$co2)
+ecdf.tz <- ecdf(co2.tz$co2)
 
 mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$mean, ecdf.ch)
+mean.f_daily.tz$quantile <- sapply(mean.f_daily.tz$mean, ecdf.tz)
 
-mean.f_daily.sa <- tibble(day = 1:35,
-                          mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
-  mutate(f = ((mean - C_o) / C_a) / 1000000)
+mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, c(mean.f_daily.ch$quantile, mean.f_daily.tz$quantile))) %>% 
+  mutate(f = ((C.mean - C_o) / C_a) / 1000000)
 
 f.sample.sa <- sample(mean.f_daily.sa$f , size = 9000, replace = TRUE)
 f.sample.ch <- sample(mean.f_daily.ch$f , size = 9000, replace = TRUE)
@@ -128,10 +129,6 @@ prev.sa <- simulate_excess("SA")
 prev.ch <- simulate_excess("CH")
 prev.tz <- simulate_excess("TZ")
 
-write_csv(prev.sa, "results/prevalence/draws.sa.csv")
-write_csv(prev.ch, "results/prevalence/draws.ch.csv")
-write_csv(prev.tz, "results/prevalence/draws.tz.csv")
-
 # calculating I #
 
 I.sa <- prev.sa %>%
@@ -158,6 +155,12 @@ I.results <- bind_rows(I.sa, I.ch, I.tz) %>%
             median_weekly = median(I_weekly),
             highCI_weekly = quantile(I_weekly, 0.975))
 
+I.results %>%
+  mutate_if(is.numeric, round, 2) %>%
+  mutate(country = factor(country, levels = c("SA", "CH", "TZ"))) %>%
+  arrange(country) %>%
+  dplyr::select(country, median_weekly, lowCI_weekly, highCI_weekly)
+
 write_csv(I.results, "results/prevalence/I_weekly.csv")
 
 # Additional analysis #
@@ -170,6 +173,11 @@ I.tz.add = 1 / n.sa * n.tz
 
 reported <- readRDS("data-clean/reported_weekly.rds")
 
+#' TODO: Use nationally reported incidence (i.e. from the official government website).
+#' At least for Switzerland, this is available, for South Africa check and send me the source,
+#' otherwise you can still use the WHO data.
+#' TODO: Cannot find reported_young ...
+
 I.sens.sa <- tibble(I = c(sample(reported %>% 
                               filter(Country == "South Africa") %>% 
                               group_by(week_start) %>% 
@@ -177,8 +185,6 @@ I.sens.sa <- tibble(I = c(sample(reported %>%
                               pull(cases_weekly), size = 3000, replace = TRUE) / 59390000 * n.sa,
                            I.sa$I_weekly,
                           rep(0, 3000)), scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
-
-reported_young <- readRDS("data-clean/reported_weekly_young.rds")                        
 
 I.sens.ch <- tibble(I = c(sample(reported %>% 
                                    filter(Country == "Switzerland") %>%
@@ -191,6 +197,18 @@ I.sens.ch <- tibble(I = c(sample(reported %>%
 
 I.sens.tz <- tibble(I = c(I.tz$I_weekly, rep(0, 6000)),
                     scenario = rep(c("IFR", "reported", "reported young"), each = 3000))
+
+I.sens_sum <- rbind(
+  I.sens.sa %>% dplyr::filter(scenario == "reported") %>% mutate(country = "South Africa"),
+  I.sens.ch %>% dplyr::filter(scenario != "IFR") %>% mutate(country = "Switzerland")
+) %>%
+  mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania"))) %>%
+  group_by(country, scenario) %>%
+  summarize(medianI = median(I),
+            Q2.5 = quantile(I, 0.025),
+            Q97.5 = quantile(I, .975))
+
+I.sens_sum %>% mutate_if(is.numeric, round, 2)
 
 #### Results  ------------------------------------------------------------------
 
@@ -212,9 +230,11 @@ df.main <- tibble(
 plottingMtb(df.main) +
   ylab("Monthly risk of infection (%, square-root scale)")
 
-ggsave("results/SARS-CoV-2/sars-main.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/SARS-CoV-2/sars-main.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.main <- results(df.main)
+
+results.main
 
 write_csv(results.main, "results/SARS-CoV-2/main.csv")
 
@@ -236,9 +256,11 @@ df.add <- tibble(
 plottingMtb(df.add) +
   labs(y = "Weekly risk of infection (%, square-root scale)")
 
-ggsave("results/SARS-CoV-2/sars.add.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/SARS-CoV-2/sars.add.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.add <- results(df.add)
+
+results.add
 
 write_csv(results.add, "results/SARS-CoV-2/add.csv")
 
@@ -255,9 +277,10 @@ df.sens.prev <- tibble(
           each = n.sample * 3),
   t = month,
   q = rep(q.sars.med, 3*3)) %>% 
-  mutate(P = 1 - exp(-f*q*I*t/n)) 
+  mutate(P = 1 - exp(-f*q*I*t/n)) %>%
+  mutate(sc = factor(sc, levels = c("reported", "reported young", "IFR")))
 
-ggplot(mapping = aes(x = factor(sc, levels = c("IFR", "reported", "reported young")), y = P, fill = country)) +
+ggplot(mapping = aes(x = sc, y = P, fill = country)) +
   geom_errorbar(data = df.sens.prev %>% 
                   dplyr::select(country, sc, P) %>% 
                   group_by(country, sc) %>% 
@@ -269,14 +292,14 @@ ggplot(mapping = aes(x = factor(sc, levels = c("IFR", "reported", "reported youn
                position = position_dodge(width = .5),
                outlier.shape = NA, coef = 0, width = 0.3) +
   stat_summary(data = df.sens.prev,
-               mapping = aes(x = sc, y = P, color = country), 
+               mapping = aes(color = country), 
                geom = "point", 
                fun = function(y) ifelse(median(y) == 0, NA, median(y)), 
                position = position_dodge2(width = .5), 
                size = 2, shape = 23, fill = "white")+
   scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
-               limits = c(0,1), breaks = seq(0, 1, .2)^2) +
-  scale_x_discrete(labels = c("IFR", "reported cases", "reported cases (young)"), expand = expansion(add = c(.33, .33))) +
+               limits = c(-1,1), breaks = seq(0, 1, .2)^2) +
+  scale_x_discrete(labels = c("Reported incidence\n(general population)", "Reported incidence\n(age group 10-20y)", "IFR-based approach"), expand = expansion(add = c(.33, .33))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   scale_fill_manual(values = wes_palette("Moonrise2")) +
   labs(y = "Monthly risk of infection (%, square-root scale)", 
@@ -288,9 +311,11 @@ ggplot(mapping = aes(x = factor(sc, levels = c("IFR", "reported", "reported youn
         plot.title.position = "plot",
         legend.box = "vertical") 
 
-ggsave("results/SARS-CoV-2/sars.sens_prev.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/SARS-CoV-2/sars.sens_prev.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.sens.prev <- results(df.sens.prev)
+
+results.sens.prev
 
 write_csv(results.add, "results/SARS-CoV-2/sens_prev.csv")
 
@@ -316,15 +341,18 @@ df.sens.co2 %>%
                position = position_dodge(width = .5),
                outlier.shape = NA, coef = 0, width = 0.3) +
   stat_summary(data = df.sens.co2,
-               mapping = aes(x = sens, y = P, color = country), geom = "point", fun = "median", 
-               position = position_dodge2(width = .5), size = 2, fill = "white") +
+               mapping = aes(x = sens, y = P, group = country), geom = "point", fun = "median", 
+               position = position_dodge2(width = .5), size = 4, fill = "white", color = "black") +
   scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                limits = c(0,1), breaks = seq(0, 1, .2)^2) +
-  scale_x_discrete(labels = c("South Africa", "Switzerland", "Tanzania"), expand = expansion(add = c(.33, .33))) +
+  scale_x_discrete(labels = c(expression(C^o*"=600ppm in South Africa"), 
+                              expression(C^o*"=600ppm in Switzerland"), 
+                              expression(C^o*"=600ppm in Tanzania")), 
+                   expand = expansion(add = c(.33, .33))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   scale_fill_manual(values = wes_palette("Moonrise2")) +
-  scale_shape_manual(values=c(23, 24), name = expression("Outdoor" ~ CO[2]- ~ "Level")) +  
-  labs(y = "Monthly risk of infection (%, square-root scale)", 
+  scale_shape_manual(values=c(23, 17), name = expression("Outdoor "*CO[2]*"-Level")) +  
+  labs(y = "Annual risk of infection (%, square-root scale)", 
        x = "",
        color = '',
        fill = '') +
@@ -333,7 +361,7 @@ df.sens.co2 %>%
         plot.title.position = "plot",
         legend.box = "vertical") 
 
-ggsave("results/Mtb/mtb-sens.co2.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/SARS-CoV-2/mtb-sens.co2.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.sens.co2 <- results(df.sens.co2)
 

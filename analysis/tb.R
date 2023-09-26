@@ -74,12 +74,13 @@ mean.f_daily.tz <- co2.tz %>%
 #'described in the methods section
 
 ecdf.ch <- ecdf(co2.ch$co2)
+ecdf.tz <- ecdf(co2.tz$co2)
 
 mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$mean, ecdf.ch)
+mean.f_daily.tz$quantile <- sapply(mean.f_daily.tz$mean, ecdf.tz)
 
-mean.f_daily.sa <- tibble(day = 1:35,
-                 mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
-  mutate(f = ((mean - C_o) / C_a) / 1000000)
+mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, c(mean.f_daily.ch$quantile, mean.f_daily.tz$quantile))) %>% 
+  mutate(f = ((C.mean - C_o) / C_a) / 1000000)
 
 f.sample.sa <- sample(mean.f_daily.sa$f , size = 9000, replace = TRUE)
 f.sample.ch <- sample(mean.f_daily.ch$f , size = 9000, replace = TRUE)
@@ -138,6 +139,19 @@ I.sa = prev.sa / 100000 * n.sa
 I.ch = prev.ch / 100000 * n.ch
 I.tz = prev.tz / 100000 * n.tz
 
+I.sum <- rbind(
+  data.frame(country = "South Africa", I = I.sa),
+  data.frame(country = "Switzerland", I = I.ch),
+  data.frame(country = "Tanzania", I = I.tz)
+) %>%
+  mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania"))) %>%
+  group_by(country) %>%
+  summarize(medianI = median(I),
+            Q2.5 = quantile(I, 0.025),
+            Q97.5 = quantile(I, .975))
+
+I.sum %>% mutate_if(is.numeric, round, 3)
+
 # Sensitivity analysis (prevalence) #
 
 prev.sa.sens <- rtruncnorm(n.sample, a = 0, mean = 852, sd = ((1026 - 679) / (2 * qnorm(0.975))))
@@ -147,6 +161,19 @@ prev.tz.sens <- rtruncnorm(n.sample, a = 0, mean = 293, sd = ((358 - 228) / (2 *
 I.sa.sens = prev.sa.sens / 100000 * n.sa
 I.ch.sens = prev.ch.sens / 100000 * n.ch
 I.tz.sens = prev.tz.sens / 100000 * n.tz
+
+I.sens_sum <- rbind(
+  data.frame(country = "South Africa", I = I.sa.sens),
+  data.frame(country = "Switzerland", I = I.ch.sens),
+  data.frame(country = "Tanzania", I = I.tz.sens)
+) %>%
+  mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania"))) %>%
+  group_by(country) %>%
+  summarize(medianI = median(I),
+            Q2.5 = quantile(I, 0.025),
+            Q97.5 = quantile(I, .975))
+
+I.sens_sum %>% mutate_if(is.numeric, round, 3)
 
 # Additional analysis (outbreak) #
 
@@ -173,11 +200,14 @@ df.main <- tibble(
   
 plottingMtb(df.main)
 
-ggsave("results/Mtb/mtb-main.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-main.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.main <- results(df.main)
 
+results.main
+
 write_csv(results.main, "results/Mtb/main.csv")
+
 # Additional analysis (outbreak): fixed I/n / day / sampling daily means of f #
 
 df.add <- tibble(
@@ -196,9 +226,11 @@ df.add <- tibble(
 plottingMtb(df.add) +
   ylab("Weekly risk of infection (%, square root scale)")
 
-ggsave("results/Mtb/mtb-add.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-add.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.add <- results(df.add)
+
+results.add
 
 write_csv(results.add, "results/Mtb/add.csv")
 
@@ -215,25 +247,31 @@ df.sens.prev <- tibble(country = rep(c("South Africa", "Switzerland", "Tanzania"
                               each = n.sample),
                  q = rep(q.mtb.med, 3),
                  t = year) %>% 
-  mutate(P = 1 - exp(-f*q*I*t/n))
+  mutate(P = 1 - exp(-f*q*I*t/n)) 
 
-ggplot(mapping = aes(x = factor(country, levels = c("South Africa", "Switzerland", "Tanzania")), y = P, fill = country)) +
-  geom_errorbar(data = df.sens.prev %>% 
-                  dplyr::select(country, P) %>% 
-                  group_by(country) %>% 
+df.sens.prev.comb <- df.sens.prev %>%
+  dplyr::select(country, P) %>%
+  mutate(sc = "Prevalence: general population") %>%
+  rbind(df.main %>% dplyr::select(country, P) %>% mutate(sc = "Prevalence: 15-24y olds")) %>%
+  mutate(sc = factor(sc, levels = c("Prevalence: general population", "Prevalence: 15-24y olds")))
+
+ggplot(mapping = aes(x = sc, y = P, fill = country)) +
+  geom_errorbar(data = df.sens.prev.comb %>% 
+                  dplyr::select(country, sc, P) %>% 
+                  group_by(country, sc) %>% 
                   median_qi(),
                 mapping = aes(ymin = .lower, ymax = .upper, color = country),
                 position = position_dodge(width = .5),
                 width = .3) +
-  geom_boxplot(data = df, 
+  geom_boxplot(data = df.sens.prev.comb, 
                position = position_dodge(width = .5),
                outlier.shape = NA, coef = 0, width = 0.3) +
-  stat_summary(data = df,
-               mapping = aes(x = country, y = P, color = country), geom = "point", fun = "median", 
+  stat_summary(data = df.sens.prev.comb,
+               mapping = aes(x = sc, y = P, color = country), geom = "point", fun = "median", 
                position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
   scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                limits = c(0,1), breaks = seq(0, 1, .2)^2) +
-  scale_x_discrete(labels = c("South Africa", "Switzerland", "Tanzania"), expand = expansion(add = c(.33, .33))) +
+  scale_x_discrete(expand = expansion(add = c(.33, .33))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   scale_fill_manual(values = wes_palette("Moonrise2")) +
   labs(y = "Annual risk of infection (%, square-root scale)", 
@@ -245,9 +283,11 @@ ggplot(mapping = aes(x = factor(country, levels = c("South Africa", "Switzerland
         plot.title.position = "plot",
         legend.box = "vertical") 
 
-ggsave("results/Mtb/mtb-sens.prev.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-sens.prev.png", width = 16 / cm(1), height = 10 / cm(1))  
 
 results.sens.prev <- results(df.sens.prev)
+
+results.sens.prev
 
 write_csv(results.sens.prev, "results/Mtb/sens.prev.csv")
 
@@ -273,14 +313,17 @@ df.sens.co2 %>%
                  position = position_dodge(width = .5),
                  outlier.shape = NA, coef = 0, width = 0.3) +
     stat_summary(data = df.sens.co2,
-                 mapping = aes(x = sens, y = P, color = country), geom = "point", fun = "median", 
-                 position = position_dodge2(width = .5), size = 2, fill = "white") +
+                 mapping = aes(x = sens, y = P, group = country), geom = "point", fun = "median", 
+                 position = position_dodge2(width = .5), size = 4, fill = "white", color = "black") +
     scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                  limits = c(0,1), breaks = seq(0, 1, .2)^2) +
-    scale_x_discrete(labels = c("South Africa", "Switzerland", "Tanzania"), expand = expansion(add = c(.33, .33))) +
+    scale_x_discrete(labels = c(expression(C^o*"=600ppm in South Africa"), 
+                                expression(C^o*"=600ppm in Switzerland"), 
+                                expression(C^o*"=600ppm in Tanzania")), 
+                     expand = expansion(add = c(.33, .33))) +
     scale_color_manual(values = wes_palette("Moonrise2")) +
     scale_fill_manual(values = wes_palette("Moonrise2")) +
-    scale_shape_manual(values=c(23, 24), name = expression("Outdoor" ~ CO[2]- ~ "Level")) +  
+    scale_shape_manual(values=c(23, 17), name = expression("Outdoor "*CO[2]*"-Level")) +  
     labs(y = "Annual risk of infection (%, square-root scale)", 
          x = "",
          color = '',
@@ -290,7 +333,7 @@ df.sens.co2 %>%
           plot.title.position = "plot",
           legend.box = "vertical") 
 
-ggsave("results/Mtb/mtb-sens.co2.png", width = 12 / cm(1), height = 8 / cm(1))  
+ggsave("results/Mtb/mtb-sens.co2.png", width = 16 / cm(1), height = 11 / cm(1))  
 
 results.sens.co2 <- results(df.sens.co2)
 

@@ -290,9 +290,9 @@ ggplot(mapping = aes(x = factor(sc, levels = c("IFR", "reported", "reported youn
 
 ggsave("results/SARS-CoV-2/sars.sens_prev.png", width = 12 / cm(1), height = 8 / cm(1))  
 
-results.add <- results(df.add)
+results.sens.prev <- results(df.sens.prev)
 
-write_csv(results.add, "results/SARS-CoV-2/add.csv")
+write_csv(results.add, "results/SARS-CoV-2/sens_prev.csv")
 
 # Sensitivity analysis (Outdoor CO2): Comparing 600 ppm vs 400 ppm #
 

@@ -134,7 +134,7 @@ sens.df <- function(country_name) {
       country == {{ country_name }} ~ "600ppm",
       TRUE ~ "400ppm"
     )),
-    sens = country_name)
+    sc = country_name)
   
   return(df)
 }
@@ -163,7 +163,7 @@ sens.df.sars <- function(country_name) {
       country == {{ country_name }} ~ "600ppm",
       TRUE ~ "400ppm"
     )),
-    sens = country_name)
+    sc = country_name)
   
   return(df)
 }

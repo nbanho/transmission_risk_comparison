@@ -29,8 +29,8 @@ C_o.sens = 600
 
 C_a = ((0.0042)*60)/8
 
-#mean girls (11-16 and 16-21), boys (11-16 and 16-21) for co2 production rate per minute.
-#the breathing rate [8] comes from Rudnick paper
+#' mean girls (11-16 and 16-21), boys (11-16 and 16-21) for co2 production rate per minute.
+#' the breathing rate [8] comes from Rudnick paper
 
 ### f_bar (rebreathed air fraction) ----
 
@@ -55,25 +55,21 @@ f_bar.tz <- f.tz %>%
 # Additional analysis (outbreak) #
 
 mean.f_daily.ch <- co2.ch %>% 
-  group_by(date) %>% 
+  group_by(date, class) %>% 
   summarise(mean = mean(co2)) %>% 
   mutate(f = ((mean - C_o) / C_a) / 1000000)
 
-mean.f_daily.tz <- co2.tz %>% 
-  group_by(date) %>% 
-  summarise(mean = mean(co2)) %>% 
-  mutate(f = ((mean - C_o) / C_a) / 1000000)
-
-#'different approach for South Africa, as the date isn't included in the dataset
+#'different approach for South Africa and Tanzania, as the date isn't included in the dataset
 #'described in the methods section
 
 ecdf.ch <- ecdf(co2.ch$co2)
-ecdf.tz <- ecdf(co2.tz$co2)
 
 mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$mean, ecdf.ch)
-mean.f_daily.tz$quantile <- sapply(mean.f_daily.tz$mean, ecdf.tz)
 
-mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, c(mean.f_daily.ch$quantile, mean.f_daily.tz$quantile))) %>% 
+mean.f_daily.tz <- tibble(C.mean = quantile(co2.tz$co2, mean.f_daily.ch$quantile)) %>% 
+  mutate(f = ((C.mean - C_o) / C_a) / 1000000)
+
+mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
   mutate(f = ((C.mean - C_o) / C_a) / 1000000)
 
 f.sample.sa <- sample(mean.f_daily.sa$f , size = 9000, replace = TRUE)
@@ -102,9 +98,9 @@ n.tz = 50
 
 ### t (time) ----
 
-day = 6
-week = day*5
-month = week*4
+day = 919 / 365
+week = 919 / 52
+month = 919 / 12
 year = 919
 
 ### q (Quanta) ----
@@ -169,14 +165,11 @@ I.sa.add = 1
 I.ch.add = 1 / n.sa * n.ch
 I.tz.add = 1 / n.sa * n.tz
 
-# Sensitivity analyis (reported cases) #
+# Sensitivity analysis (reported cases) #
 
 reported <- readRDS("data-clean/reported_weekly.rds")
-
-#' TODO: Use nationally reported incidence (i.e. from the official government website).
-#' At least for Switzerland, this is available, for South Africa check and send me the source,
-#' otherwise you can still use the WHO data.
-#' TODO: Cannot find reported_young ...
+reported_ch <- readRDS("data-clean/reported_weekly_ch.rds")
+reported_young <- readRDS("data-clean/reported_weekly_young.rds")                        
 
 I.sens.sa <- tibble(I = c(sample(reported %>% 
                               filter(Country == "South Africa") %>% 
@@ -186,11 +179,8 @@ I.sens.sa <- tibble(I = c(sample(reported %>%
                            I.sa$I_weekly,
                           rep(0, 3000)), scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
 
-I.sens.ch <- tibble(I = c(sample(reported %>% 
-                                   filter(Country == "Switzerland") %>%
-                                   group_by(week_start) %>% 
-                                   summarise(cases_weekly = sum(New_cases)) %>% 
-                                   pull(cases_weekly), size = 3000, replace = TRUE)/ 8700000 * n.ch,
+I.sens.ch <- tibble(I = c(sample(reported_ch %>%
+                                   pull(weekly_cases), size = 3000, replace = TRUE)/ 8700000 * n.ch,
                           I.ch$I_weekly,
                           sample(reported_young$weekly_cases, size = 3000, replace = TRUE) / 1755000 * n.ch), 
                     scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
@@ -328,11 +318,11 @@ df.sens.co2.tz <- sens.df.sars("Tanzania")
 df.sens.co2 <- bind_rows(df.sens.co2.sa, df.sens.co2.ch, df.sens.co2.tz) 
 
 df.sens.co2 %>% 
-  mutate(sens = factor(sens, levels = c("South Africa", "Switzerland", "Tanzania"))) %>% 
-  ggplot(mapping = aes(x = sens, y = P, fill = country, shape = type)) +
+  mutate(sc = factor(sc, levels = c("South Africa", "Switzerland", "Tanzania"))) %>% 
+  ggplot(mapping = aes(x = sc, y = P, fill = country, shape = type)) +
   geom_errorbar(data = df.sens.co2 %>% 
-                  dplyr::select(country, sens, P, type) %>% 
-                  group_by(country, sens, type) %>% 
+                  dplyr::select(country, sc, P, type) %>% 
+                  group_by(country, sc, type) %>% 
                   median_qi(),
                 mapping = aes(ymin = .lower, ymax = .upper, color = country),
                 position = position_dodge(width = .5),
@@ -341,7 +331,7 @@ df.sens.co2 %>%
                position = position_dodge(width = .5),
                outlier.shape = NA, coef = 0, width = 0.3) +
   stat_summary(data = df.sens.co2,
-               mapping = aes(x = sens, y = P, group = country), geom = "point", fun = "median", 
+               mapping = aes(x = sc, y = P, group = country), geom = "point", fun = "median", 
                position = position_dodge2(width = .5), size = 4, fill = "white", color = "black") +
   scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                limits = c(0,1), breaks = seq(0, 1, .2)^2) +

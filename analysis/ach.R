@@ -37,64 +37,52 @@ vol.tz = 162000
 ### Switzerland ----
 
 ACH.ch <- co2.ch %>% 
-  group_by(date) %>% 
+  group_by(date, class) %>% 
   summarise(co2.max = max(co2)) %>% 
-  ungroup() %>%
+  ungroup() %>% 
   mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
          ACH = ((3600 * Q * n.ch) / vol.ch)) %>% 
-  dplyr::select(-date) %>%
+  dplyr::select(-date, -class) %>%
   summarise_all(list(mean = mean, 
                      sd = sd, 
                      med = median, 
                      q25 = function(x) quantile(x, .25), 
                      q25 = function(x) quantile(x, .75))) 
 
-### Tanzania ----
-
-ACH.tz <- co2.tz %>% 
-  group_by(date) %>% 
-  summarise(co2.max = max(co2)) %>% 
-  ungroup() %>%
-  mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
-         ACH = ((3600 * Q * n.tz) / vol.tz)) %>%
-  dplyr::select(-date) %>%
-  summarise_all(list(mean = mean, 
-                     sd = sd, 
-                     med = median, 
-                     q25 = function(x) quantile(x, .25), 
-                     q25 = function(x) quantile(x, .75))) 
-
-### South Africa ----
+### South Africa and Tanzania ----
 
 # Using the quantiles of the daily maxes from CH and TZ
 
 max.ch <- co2.ch %>% 
-  group_by(date) %>% 
+  group_by(date, class) %>% 
   summarise(co2.max = max(co2)) %>%
   ungroup()
 
-max.tz <- co2.tz %>% 
-  group_by(date) %>% 
-  summarise(co2.max = max(co2)) %>%
-  ungroup()
-
-# Create the ECDF for the CH and TZ data
+# Create the ECDF for the CH  data
 
 ecdf.ch <- ecdf(co2.ch$co2)
-ecdf.tz <- ecdf(co2.tz$co2)
 
 # Determine quantile of of the daily maxes from Switzerland
 
 max.ch$quantile <- sapply(max.ch$co2.max, ecdf.ch)
-max.tz$quantile <- sapply(max.tz$co2.max, ecdf.tz)
 
-# Using these quantiles to determine the daily maxes for South Africa
+# Using these quantiles to determine the daily maxes for South Africa and Tanzania
 
-max.sa <- quantile(co2.sa$co2, c(max.ch$quantile, max.tz$quantile))
+max.sa <- quantile(co2.sa$co2, max.ch$quantile)
+max.tz <- quantile(co2.tz$co2, max.ch$quantile)
 
 ACH.sa <- data.frame(co2.max = c(max.sa)) %>%
   mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
          ACH = ((3600 * Q * n.sa) / vol.sa))  %>%
+  summarise_all(list(mean = mean, 
+                     sd = sd, 
+                     med = median, 
+                     q25 = function(x) quantile(x, .25), 
+                     q25 = function(x) quantile(x, .75))) 
+
+ACH.tz <- data.frame(co2.max = c(max.tz)) %>%
+  mutate(Q = ((0.13 * C_a * 1000000) / (co2.max - C_o)),
+         ACH = ((3600 * Q * n.tz) / vol.tz))  %>%
   summarise_all(list(mean = mean, 
                      sd = sd, 
                      med = median, 
@@ -121,7 +109,7 @@ f.tz = f(co2.tz)$mean[1]
 # Mean and SD of daily means of f #
 
 mean.f_daily.ch <- co2.ch %>% 
-  group_by(date) %>% 
+  group_by(date, class) %>% 
   summarise(C.mean = mean(co2)) %>% 
   ungroup() %>% 
   mutate(f = ((C.mean - C_o) / C_a) / 1000000)

@@ -61,12 +61,7 @@ f_bar.tz <- f.tz %>%
 # Additional analysis (outbreak) #
 
 mean.f_daily.ch <- co2.ch %>% 
-  group_by(date) %>% 
-  summarise(mean = mean(co2)) %>% 
-  mutate(f = ((mean - C_o) / C_a) / 1000000)
-
-mean.f_daily.tz <- co2.tz %>% 
-  group_by(date) %>% 
+  group_by(date, class) %>% 
   summarise(mean = mean(co2)) %>% 
   mutate(f = ((mean - C_o) / C_a) / 1000000)
 
@@ -74,12 +69,13 @@ mean.f_daily.tz <- co2.tz %>%
 #'described in the methods section
 
 ecdf.ch <- ecdf(co2.ch$co2)
-ecdf.tz <- ecdf(co2.tz$co2)
 
 mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$mean, ecdf.ch)
-mean.f_daily.tz$quantile <- sapply(mean.f_daily.tz$mean, ecdf.tz)
 
-mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, c(mean.f_daily.ch$quantile, mean.f_daily.tz$quantile))) %>% 
+mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
+  mutate(f = ((C.mean - C_o) / C_a) / 1000000)
+
+mean.f_daily.tz <- tibble(C.mean = quantile(co2.tz$co2, mean.f_daily.ch$quantile)) %>% 
   mutate(f = ((C.mean - C_o) / C_a) / 1000000)
 
 f.sample.sa <- sample(mean.f_daily.sa$f , size = 9000, replace = TRUE)
@@ -108,9 +104,9 @@ n.tz = 50
 
 ### t (time) ----
 
-day = 7
-week = 7*5
-month = week*4
+day = 919 / 365
+week = 919 / 52
+month = 919 / 12
 year = 919
 
 ### q (Quanta) ----
@@ -300,11 +296,11 @@ df.sens.co2.tz <- sens.df("Tanzania")
 df.sens.co2 <- bind_rows(df.sens.co2.sa, df.sens.co2.ch, df.sens.co2.tz) 
 
 df.sens.co2 %>% 
-  mutate(sens = factor(sens, levels = c("South Africa", "Switzerland", "Tanzania"))) %>% 
-  ggplot(mapping = aes(x = sens, y = P, fill = country, shape = type)) +
+  mutate(sens = factor(sc, levels = c("South Africa", "Switzerland", "Tanzania"))) %>% 
+  ggplot(mapping = aes(x = sc, y = P, fill = country, shape = type)) +
     geom_errorbar(data = df.sens.co2 %>% 
-                    dplyr::select(country, sens, P, type) %>% 
-                    group_by(country, sens, type) %>% 
+                    dplyr::select(country, sc, P, type) %>% 
+                    group_by(country, sc, type) %>% 
                     median_qi(),
                   mapping = aes(ymin = .lower, ymax = .upper, color = country),
                   position = position_dodge(width = .5),
@@ -313,7 +309,7 @@ df.sens.co2 %>%
                  position = position_dodge(width = .5),
                  outlier.shape = NA, coef = 0, width = 0.3) +
     stat_summary(data = df.sens.co2,
-                 mapping = aes(x = sens, y = P, group = country), geom = "point", fun = "median", 
+                 mapping = aes(x = sc, y = P, group = country), geom = "point", fun = "median", 
                  position = position_dodge2(width = .5), size = 4, fill = "white", color = "black") +
     scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                  limits = c(0,1), breaks = seq(0, 1, .2)^2) +

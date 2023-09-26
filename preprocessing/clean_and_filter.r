@@ -85,7 +85,20 @@ reported <- read.csv("https://covid19.who.int/WHO-COVID-19-global-data.csv") %>%
 saveRDS(reported, "data-clean/reported_weekly.rds")
 
 
-#### reported cases young ####
+#### reported cases Switzerland ####
+
+reported_ch <- read.csv("data-raw/COVID19CasesRawData_AKL10_d.csv") %>% 
+  filter(date >= ymd("2020-03-01") & date <= ymd("2021-01-31")) %>% 
+  group_by(date) %>% 
+  summarise(daily_cases = sum(entries)) %>% 
+  mutate(date = ymd(date),
+         week_start = floor_date(date, unit = "week")) %>% 
+  group_by(week_start) %>% 
+  summarise(weekly_cases = sum(daily_cases))
+
+saveRDS(reported_ch, "data-clean/reported_weekly_ch.rds")
+
+#### reported cases Switzerland (young) ####
 
 reported_young <- read.csv("data-raw/COVID19CasesRawData_AKL10_d.csv") %>% 
   filter(ageRange == "10 - 19",

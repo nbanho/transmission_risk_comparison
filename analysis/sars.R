@@ -168,24 +168,29 @@ I.tz.add = 1 / n.sa * n.tz
 
 # Sensitivity analyis (reported cases) #
 
-reported <- read.csv("https://covid19.who.int/WHO-COVID-19-global-data.csv") %>% 
-  filter(Country %in% c("South Africa", "Switzerland", "Tanzania"),
-         Date_reported >= ymd("2020-03-01") & Date_reported <= ymd("2021-01-31")) %>% 
-  mutate(Date_reported = ymd(Date_reported)) %>%  # Convert Date_reported to a date object
-  mutate(week_start = floor_date(Date_reported, unit = "week"))
+reported <- readRDS("data-clean/reported_weekly.rds")
 
-
-I.sens.ch <- sample(reported %>% 
-                              filter(Country == "Switzerland") %>%
-                              group_by(week_start) %>% 
-                              summarise(cases_weekly = sum(New_cases)) %>% 
-                              pull(cases_weekly), size = 3000, replace = TRUE)/ 8700000 * n.ch
-
-I.sens.sa <- sample(reported %>% 
+I.sens.sa <- tibble(I = c(sample(reported %>% 
                               filter(Country == "South Africa") %>% 
                               group_by(week_start) %>% 
                               summarise(cases_weekly = sum(New_cases)) %>% 
-                              pull(cases_weekly), size = 3000, replace = TRUE) / 59390000 * n.sa
+                              pull(cases_weekly), size = 3000, replace = TRUE) / 59390000 * n.sa,
+                           I.sa$I_weekly,
+                          rep(0, 3000)), scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
+
+reported_young <- readRDS("data-clean/reported_weekly_young.rds")                        
+
+I.sens.ch <- tibble(I = c(sample(reported %>% 
+                                   filter(Country == "Switzerland") %>%
+                                   group_by(week_start) %>% 
+                                   summarise(cases_weekly = sum(New_cases)) %>% 
+                                   pull(cases_weekly), size = 3000, replace = TRUE)/ 8700000 * n.ch,
+                          I.ch$I_weekly,
+                          sample(reported_young$weekly_cases, size = 3000, replace = TRUE) / 1755000 * n.ch), 
+                    scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
+
+I.sens.tz <- tibble(I = c(I.tz$I_weekly, rep(0, 6000)),
+                    scenario = rep(c("IFR", "reported", "reported young"), each = 3000))
 
 #### Results  ------------------------------------------------------------------
 
@@ -226,7 +231,7 @@ df.add <- tibble(
   t = week,
   q = q_long$q,
   sc = q_long$scenario) %>% 
-  mutate(P = 1 - exp(-f*q*I*t/n))
+  mutate(P = 1 - exp(-f*q*I*t/n)) 
 
 plottingMtb(df.add) +
   labs(y = "Weekly risk of infection (%, square-root scale)")
@@ -242,43 +247,40 @@ write_csv(results.add, "results/SARS-CoV-2/add.csv")
 df.sens.prev <- tibble(
   country = rep(c("South Africa", "Switzerland", "Tanzania"), 
                 each = n.sample * 3),
-  I = rep(c(I.sa$I_weekly, I.ch$I_weekly, I.tz$I_weekly), each = 3),
-  I.sens = rep(c(I.sens.sa, I.sens.ch, rep(0, 3000)), each = 3),
+  I = rep(c(I.sens.sa$I, I.sens.ch$I, I.sens.tz$I)),
+  sc = rep(c(I.sens.sa$scenario, I.sens.ch$scenario, I.sens.tz$scenario)),
   n = rep(c(n.sa, n.ch, n.tz), 
           each = n.sample * 3),
   f = rep(c(f_bar.sa, f_bar.ch, f_bar.tz), 
           each = n.sample * 3),
   t = month,
   q = rep(q.sars.med, 3*3)) %>% 
-  mutate(P = 1 - exp(-f*q*I*t/n),
-         P.sens = 1 - exp(-f*q*I.sens*t/n))
+  mutate(P = 1 - exp(-f*q*I*t/n)) 
 
-df.long <- df.sens.prev %>% 
-  pivot_longer(cols = c(P, P.sens), 
-               names_to = "variable", 
-               values_to = "value")
-
-ggplot(mapping = aes(x = factor(variable, levels = c("P", "P.sens")), y = value, fill = country)) +
-  geom_errorbar(data = df.long %>% 
-                  dplyr::select(country, variable, value) %>% 
-                  group_by(country, variable) %>% 
+ggplot(mapping = aes(x = factor(sc, levels = c("IFR", "reported", "reported young")), y = P, fill = country)) +
+  geom_errorbar(data = df.sens.prev %>% 
+                  dplyr::select(country, sc, P) %>% 
+                  group_by(country, sc) %>% 
                   median_qi(),
                 mapping = aes(ymin = .lower, ymax = .upper, color = country),
                 position = position_dodge(width = .5),
                 width = .3) +
-  geom_boxplot(data = df.long, 
+  geom_boxplot(data = df.sens.prev, 
                position = position_dodge(width = .5),
                outlier.shape = NA, coef = 0, width = 0.3) +
-  stat_summary(data = df.long,
-               mapping = aes(x = variable, y = value, color = country), geom = "point", fun = "median", 
-               position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
+  stat_summary(data = df.sens.prev,
+               mapping = aes(x = sc, y = P, color = country), 
+               geom = "point", 
+               fun = function(y) ifelse(median(y) == 0, NA, median(y)), 
+               position = position_dodge2(width = .5), 
+               size = 2, shape = 23, fill = "white")+
   scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
                limits = c(0,1), breaks = seq(0, 1, .2)^2) +
-  scale_x_discrete(labels = c("IFR", "Reported cases"), expand = expansion(add = c(.33, .33))) +
+  scale_x_discrete(labels = c("IFR", "reported cases", "reported cases (young)"), expand = expansion(add = c(.33, .33))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   scale_fill_manual(values = wes_palette("Moonrise2")) +
   labs(y = "Monthly risk of infection (%, square-root scale)", 
-       x = "Method of estimating number of infectious students",
+       x = "",
        color = '',
        fill = '') +
   theme_custom() +

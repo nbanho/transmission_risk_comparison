@@ -39,6 +39,8 @@ f <- function(df) {
 
 # IFR (Lancet) #
 
+excess <- readRDS("data-clean/excess.rds")
+
 ifr <- tibble(country = c(rep("SA", 4), rep("CH", 4), rep("TZ", 4)),
               period = rep(c("April", "July", "October", "January"), 3),
               IFR = c(0.511, 0.400, 0.348, 0.331, 1.687, 1.322, 1.164, 1.113, 0.169, 0.133, 0.116, 0.111),
@@ -49,8 +51,6 @@ ifr <- tibble(country = c(rep("SA", 4), rep("CH", 4), rep("TZ", 4)),
          sd = (IFR.high - IFR.low) / 2* 1.96)
 
 # excess mortality #
-
-read_csv("results/prevalence/excess.csv")
 
 simulate_excess <- function(country) {
   
@@ -234,8 +234,6 @@ plottingSars <- function(df) {
   
 }
 
-
-
 # results dataframe #
 results <- function(df){
   
@@ -246,4 +244,3 @@ results <- function(df){
                      upperCI = round(quantile(P, 0.975),3))
   
 }
-

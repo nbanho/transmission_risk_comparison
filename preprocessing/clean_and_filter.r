@@ -3,7 +3,7 @@
 library(haven)
 library(tidyverse)
 
-#### Data import + merging data structure ####
+#### CO2 data ####
 
 ### SA and TZ ###
 
@@ -72,3 +72,29 @@ excess <- read.csv("data-raw/export_country_per_100k.csv")  %>%
             highCI = min(weekly.per100k.high))
 
 write_csv(excess, "results/prevalence/excess.csv")
+saveRDS(excess, "data-clean/excess.rds")
+
+#### reported cases ####
+
+reported <- read.csv("https://covid19.who.int/WHO-COVID-19-global-data.csv") %>% 
+  filter(Country %in% c("South Africa", "Switzerland", "Tanzania"),
+         Date_reported >= ymd("2020-03-01") & Date_reported <= ymd("2021-01-31")) %>% 
+  mutate(Date_reported = ymd(Date_reported)) %>%  # Convert Date_reported to a date object
+  mutate(week_start = floor_date(Date_reported, unit = "week"))
+
+saveRDS(reported, "data-clean/reported_weekly.rds")
+
+
+#### reported cases young ####
+
+reported_young <- read.csv("data-raw/COVID19CasesRawData_AKL10_d.csv") %>% 
+  filter(ageRange == "10 - 19",
+         date >= ymd("2020-03-01") & date <= ymd("2021-01-31")) %>% 
+  group_by(date) %>% 
+  summarise(daily_cases = sum(entries)) %>% 
+  mutate(date = ymd(date),
+         week_start = floor_date(date, unit = "week")) %>% 
+  group_by(week_start) %>% 
+  summarise(weekly_cases = sum(daily_cases))
+
+saveRDS(reported_young, "data-clean/reported_weekly_young.rds")

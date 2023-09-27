@@ -152,7 +152,7 @@ I.results <- bind_rows(I.sa, I.ch, I.tz) %>%
             highCI_weekly = quantile(I_weekly, 0.975))
 
 I.results %>%
-  mutate_if(is.numeric, round, 2) %>%
+  mutate_if(is.numeric, round, 3) %>%
   mutate(country = factor(country, levels = c("SA", "CH", "TZ"))) %>%
   arrange(country) %>%
   dplyr::select(country, median_weekly, lowCI_weekly, highCI_weekly)
@@ -165,38 +165,52 @@ I.tz.add = 1 / n.sa * n.tz
 
 # Sensitivity analysis (reported cases) #
 
-reported <- readRDS("data-clean/reported_weekly.rds")
-reported_ch <- readRDS("data-clean/reported_weekly_ch.rds")
-reported_young <- readRDS("data-clean/reported_weekly_young.rds")                        
+summarize_weekly_cases <- function(df, pop, n.class) {
+  df %>%
+    mutate(inci = weekly_cases / pop * 1e5,
+           I = weekly_cases / pop * n.class) %>%
+    ungroup() %>%
+    summarize_at(c("inci", "I"), 
+                 list(mean = mean, 
+                      sd = sd, 
+                      q50 = function(x) quantile(x, 0.5),
+                      q2.5 = function(x) quantile(x, 0.025),
+                      q975.5 = function(x) quantile(x, 0.975)))
+}
 
-I.sens.sa <- tibble(I = c(sample(reported %>% 
-                              filter(Country == "South Africa") %>% 
-                              group_by(week_start) %>% 
-                              summarise(cases_weekly = sum(New_cases)) %>% 
-                              pull(cases_weekly), size = 3000, replace = TRUE) / 59390000 * n.sa,
-                           I.sa$I_weekly,
-                          rep(0, 3000)), scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
+reported_sa <- readRDS("data-clean/reported_weekly.rds") %>%
+  dplyr::filter(Country == "South Africa") %>%
+  group_by(week_start) %>%
+  summarize(weekly_cases = sum(New_cases)) %>%
+  summarize_weekly_cases(pop = 59390000, n.class = n.sa)
 
-I.sens.ch <- tibble(I = c(sample(reported_ch %>%
-                                   pull(weekly_cases), size = 3000, replace = TRUE)/ 8700000 * n.ch,
-                          I.ch$I_weekly,
-                          sample(reported_young$weekly_cases, size = 3000, replace = TRUE) / 1755000 * n.ch), 
-                    scenario = rep(c("reported", "IFR", "reported young"), each = 3000))
+reported_ch <- readRDS("data-clean/reported_weekly_ch.rds") %>%
+  summarize_weekly_cases(8700000, n.ch)
+  
+reported_ch_young <- readRDS("data-clean/reported_weekly_young.rds")  %>%
+  summarize_weekly_cases(1755000, n.ch)
 
-I.sens.tz <- tibble(I = c(I.tz$I_weekly, rep(0, 6000)),
-                    scenario = rep(c("IFR", "reported", "reported young"), each = 3000))
+rbind(reported_sa %>% mutate(country = "South Africa", group = "general population"),
+      reported_ch %>% mutate(country = "Switzerland", group = "general population"),
+      reported_ch_young %>% mutate(country = "Switzerland", group = "age group 10-20y"))  %>%
+  dplyr::select(country, group, matches("inci"), everything()) %>%
+  mutate_at(vars(matches("inci")), round, 0) %>%
+  mutate_at(vars(matches("I")), round, 3)
 
-I.sens_sum <- rbind(
-  I.sens.sa %>% dplyr::filter(scenario == "reported") %>% mutate(country = "South Africa"),
-  I.sens.ch %>% dplyr::filter(scenario != "IFR") %>% mutate(country = "Switzerland")
-) %>%
-  mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania"))) %>%
-  group_by(country, scenario) %>%
-  summarize(medianI = median(I),
-            Q2.5 = quantile(I, 0.025),
-            Q97.5 = quantile(I, .975))
+I.sens.sa <- rbind(data.frame(scenario = "IFR", I = I.sa$I_weekly),
+                   data.frame(scenario = "reported", I = rtrunc(n.sample, "norm", a = 0, mean = reported_sa$I_mean, sd = reported_sa$I_sd)),
+                   data.frame(scenario = "reported young", I = rep(NA, n.sample))) %>%
+  mutate(country = "South Africa")
 
-I.sens_sum %>% mutate_if(is.numeric, round, 2)
+I.sens.ch <- rbind(data.frame(scenario = "IFR", I = I.ch$I_weekly),
+                   data.frame(scenario = "reported", I = rtrunc(n.sample, "norm", a = 0, mean = reported_ch$I_mean, sd = reported_ch$I_sd)),
+                   data.frame(scenario = "reported young", I = rtrunc(n.sample, "norm", a = 0, mean = reported_ch_young$I_mean, sd = reported_ch_young$I_sd))) %>%
+  mutate(country = "Switzerland")
+
+I.sens.tz <- rbind(data.frame(scenario = "IFR", I = I.sa$I_weekly),
+                   data.frame(scenario = "reported", I = rep(NA, n.sample)),
+                   data.frame(scenario = "reported young", I = rep(NA, n.sample))) %>%
+  mutate(country = "South Africa")
 
 #### Results  ------------------------------------------------------------------
 

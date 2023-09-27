@@ -96,7 +96,8 @@ ACH <- bind_rows(ACH.sa, ACH.ch, ACH.tz) %>%
 ACH %>% 
   mutate_at(vars(matches("Q|ACH")), round, 2) %>%
   mutate_at(vars(matches("co2")), round, 0) %>%
-  dplyr::select(country, matches("co2"), matches("Q"), matches("ACH"))
+  dplyr::select(country, matches("_mean"), matches("_sd")) %>%
+  dplyr::select(country, matches("co2"), matches("Q_"), matches("ACH_")) 
 
 write_csv(ACH, "results/co2/ACH.csv")
 
@@ -127,19 +128,23 @@ f_daily_sum.tz <- mean.f_daily.tz %>%
   dplyr::select(C.mean, f) %>%
   summarise_all(list(mean = mean, sd = sd))
 
-#'different approach for South Africa, as the date isn't included in the dataset
+#'different approach for South Africa and Tanzania, as the date and/or class isn't included in the dataset
 #'described in the methods section
 
 ecdf.ch <- ecdf(co2.ch$co2)
-ecdf.tz <- ecdf(co2.tz$co2)
-
 mean.f_daily.ch$quantile <- sapply(mean.f_daily.ch$C.mean, ecdf.ch)
-mean.f_daily.tz$quantile <- sapply(mean.f_daily.tz$C.mean, ecdf.tz)
 
-mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, c(mean.f_daily.ch$quantile, mean.f_daily.tz$quantile))) %>% 
+mean.f_daily.sa <- tibble(C.mean = quantile(co2.sa$co2, mean.f_daily.ch$quantile)) %>% 
+  mutate(f = ((C.mean - C_o) / C_a) / 1000000)
+
+mean.f_daily.tz <- tibble(C.mean = quantile(co2.tz$co2, mean.f_daily.ch$quantile)) %>% 
   mutate(f = ((C.mean - C_o) / C_a) / 1000000)
 
 f_daily_sum.sa <- mean.f_daily.sa %>% 
+  dplyr::select(C.mean, f) %>%
+  summarise_all(list(mean = mean, sd = sd))
+
+f_daily_sum.tz <- mean.f_daily.tz %>% 
   dplyr::select(C.mean, f) %>%
   summarise_all(list(mean = mean, sd = sd))
 

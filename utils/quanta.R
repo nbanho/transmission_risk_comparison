@@ -7,24 +7,7 @@ library(tidybayes)
 
 # for plotting
 library(wesanderson)
-text_size = 8
-update_geom_defaults("text", list(size = text_size))
-theme_custom <- function() {
-  theme_minimal() %+replace% 
-    theme(text = element_text(size = text_size),
-          axis.text = element_text(size = text_size),
-          axis.title = element_text(size = text_size),
-          plot.title = element_text(size = text_size + 2, face = "bold", hjust = 0, margin = ggplot2::margin(0, 0, 5, 0)),
-          strip.text = element_text(size = text_size),
-          #panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank(),
-          panel.grid.major.x = element_blank(),
-          panel.border = element_blank(),
-          axis.line.x = element_line(),
-          axis.line.y = element_line(),
-          axis.ticks =  element_line(),
-          legend.text = element_text(size = 8))
-}
+source("utils/plotting.r")
 
 
 # for rounding so that the vector sums to 1
@@ -90,38 +73,7 @@ cv_mtb <- function(n) rlnorm(n, log(10^5.5), log(10^1.3)) # CFU mL-1
 ci <- c(1.4e-3, 2.0e-3)
 names(ci) <- c("SARS-CoV-2", "Mtb")
 
-#' Finally, we use the data from our Swiss study to inform the average prop. of activity levels
-#' in the classroom. In the study, we tracked activities at 10min intervals and
-#' categorized them into "silent working" (breathing), "quiet working, speaking"
-#' (speaking), "loud speaking" (loud speaking).   
-
-activity <- read.csv("data-raw/activity.csv") %>%
-  mutate(class = ifelse(grepl("3a", record_id), "3a", "3b")) %>%
-  dplyr::select(class, date, matches("morning|midday|afternoon")) %>%
-  dplyr::select(class, date, matches("___1"), matches("___2"), matches("___3")) %>%
-  melt(c("class", "date")) %>%
-  mutate(activity = ifelse(grepl("___1", variable), "breathing", 
-                           ifelse(grepl("___2", variable), "speaking", 
-                                  "speaking loudly"))) %>% 
-  mutate(time = stringi::stri_extract(variable, regex = "\\d{3,4}")) %>%
-  mutate(value = ifelse(value == 1, T, F)) %>%
-  dplyr::select(class, date, time, activity, value) %>%
-  group_by(class, date, time) %>%
-  filter(any(value)) %>% # exclude times without lesson in the classroom
-  ungroup() %>%
-  group_by(activity) %>%
-  dplyr::summarize(n = sum(value)) %>%
-  ungroup() %>%
-  mutate(p = n / sum(n)) %>%
-  mutate(activity = factor(activity, levels = c("breathing", "speaking", "speaking loudly"))) %>%
-  arrange(activity)
-
-p_activ <- activity$p
-names(p_activ) <- activity$activity
-
-round(p_activ * 100)
-
-#' No we can re-estimate the quanta emission rates depending on activity levels
+#' Now, we can re-estimate the quanta emission rates depending on activity levels
 #' using the predictive approach by Buonanno (see Eq. (1) in Mikszewski):
 
 #' Quanta emission rate sampling distributions ERq for students sitting in the classroom 
@@ -182,7 +134,7 @@ set.seed(1)
 p_breath <- c(1, 0, 0)
 p_speak <- c(0, 1, 0)
 p_loud_speak <- c(0, 0, 1)
-names(p_breath) <- names(p_speak) <- names(p_loud_speak) <- names(p_activ)
+names(p_breath) <- names(p_speak) <- names(p_loud_speak) <- c("breathing", "speaking", "speaking loudly")
 
 round(quantile(ERq(n = n.sample, pa = p_breath), c(0.5, 0.25, 0.75)), 1)
 round(quantile(ERq(n = n.sample, pa = p_speak), c(0.5, 0.25, 0.75)), 1)
@@ -213,68 +165,3 @@ q_mtb_high <- ERq("Mtb", n.sample, pa = p_high)
 round(quantile(q_mtb_low, c(.5, .25, .75)), 1)
 round(quantile(q_mtb_med, c(.5, .25, .75)), 1)
 round(quantile(q_mtb_high, c(.5, .25, .75)), 1)
-
-
-##### Mtb Example ####
-
-#' This example shows the modeled annual Mtb transmission risks by country.
-#' 
-#' Further assumptions:
-Ca <- 31500
-Co <- 400
-t_ann <- 919
-
-df <- tibble(
-  country = c("South Africa", "Switzerland", "Tanzania"),
-  n = c(30, 20, 50),
-  C = c(1626, 1802, 643),
-  prev_m = c(432, 12, 42),
-  prev_l = c(232, 5, 11),
-  prev_u = c(632, 20, 73),
-  f = (C - Co) / Ca,
-  prev_s = (prev_u - prev_l) / (2 * qnorm(0.975)),
-  q =  rep(list(c(q_mtb_low, q_mtb_med, q_mtb_high)), each = 3),
-  scenario = rep(list(c(rep("Low", n.sample), rep("Medium", n.sample), rep("High", n.sample)))),
-  t = t_ann
-) 
-
-rI <- function(n, pm, ps, nstud) {
-  rtrunc(n, spec = "norm", a = 0, mean = pm, sd = ps) / 1e5 * nstud
-}
-
-df <- df %>%
-  mutate(I = pmap(list(prev_m, prev_s, n), function(m, s, n) rep(rI(n.sample, m, s, n), 3))) %>%
-  unnest(c(I, q, scenario)) %>%
-  mutate(P = 1 - exp(-f*q*I*t/n)) %>%
-  mutate(country = factor(country, levels = c("South Africa", "Switzerland", "Tanzania")),
-         scenario = factor(scenario, levels = c("Low", "Medium", "High")))
-
-ggplot(mapping = aes(x = scenario, y = P, fill = country)) +
-  geom_errorbar(data = df %>%
-                  dplyr::select(country, scenario, P) %>%
-                  group_by(country, scenario) %>%
-                  median_qi(),
-                mapping = aes(ymin = .lower, ymax = .upper, color = country),
-                position = position_dodge(width = .5),
-                width = .3) +
-  geom_boxplot(data = df, 
-               position = position_dodge(width = .5),
-               outlier.shape = NA, coef = 0, width = 0.3) +
-  stat_summary(data = df,
-               mapping = aes(x = scenario, y = P, color = country), geom = "point", fun = "median", 
-               position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
-  scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
-               limits = c(0,1), breaks = seq(0, 1, .2)^2) +
-  scale_x_discrete(labels = c("Low", "Medium", "High"), expand = expansion(add = c(.33, .33))) +
-  scale_color_manual(values = wes_palette("Moonrise2")) +
-  scale_fill_manual(values = wes_palette("Moonrise2")) +
-  labs(y = "Annual risk of infection (%, square-root scale)", 
-       x = "Activity level in the classroom",
-       color = '',
-       fill = '') +
-  theme_custom() +
-  theme(legend.position = "top",
-        plot.title.position = "plot",
-        legend.box = "vertical") 
-
-ggsave("results/example-mtb-visualization.png", width = 12 / cm(1), height = 8 / cm(1))  

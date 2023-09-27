@@ -157,8 +157,6 @@ I.results %>%
   arrange(country) %>%
   dplyr::select(country, median_weekly, lowCI_weekly, highCI_weekly)
 
-write_csv(I.results, "results/prevalence/I_weekly.csv")
-
 # Additional analysis #
 
 I.sa.add = 1

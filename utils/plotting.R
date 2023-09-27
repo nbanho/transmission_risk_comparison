@@ -1,5 +1,10 @@
 #### Plotting ####
 
+library(wesanderson)
+
+text_size = 8
+update_geom_defaults("text", list(size = text_size))
+
 plot_co2 <- function(data_frame) {
   ggplot(data_frame, aes(x = y)) +
     geom_histogram(binwidth = 100, color = "black", fill = "#FFDEAD", aes(y = after_stat(density))) +
@@ -17,6 +22,23 @@ theme_bw2 <- function () {
       axis.title = element_text(size = text_size),
       plot.title = element_text(size = text_size + 2, face = "bold", hjust = 0, margin = ggplot2::margin(0, 0, 5, 0))
     )
+}
+
+theme_custom <- function() {
+  theme_minimal() %+replace% 
+    theme(text = element_text(size = text_size),
+          axis.text = element_text(size = text_size),
+          axis.title = element_text(size = text_size),
+          plot.title = element_text(size = text_size + 2, face = "bold", hjust = 0, margin = ggplot2::margin(0, 0, 5, 0)),
+          strip.text = element_text(size = text_size),
+          #panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.border = element_blank(),
+          axis.line.x = element_line(),
+          axis.line.y = element_line(),
+          axis.ticks =  element_line(),
+          legend.text = element_text(size = 8))
 }
 
 cm <- function(x) {

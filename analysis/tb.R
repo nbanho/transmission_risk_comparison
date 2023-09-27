@@ -8,12 +8,12 @@ library(tidyverse)
 library(truncnorm)
 library(LaplacesDemon)
 library(tidybayes)
-library(wesanderson)
 
 #### Utils ---------------------------------------------------------------------
 
 source("utils/functions-analysis.R")
 source("utils/quanta.R")
+source("utils/plotting.r")
 n.sample = 3000 
 set.seed(1793)
 country.order <- c("SA","CH", "TZ")

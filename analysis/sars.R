@@ -131,19 +131,19 @@ I.sa <- prev.sa %>%
   group_by(draw) %>% 
   summarise(mean.prev = mean(draw_prev_per100k)) %>% 
   mutate(I_weekly = mean.prev / 100000 * n.sa,
-         country = "SA")
+         country = "SA") 
 
 I.ch <- prev.ch %>%
   group_by(draw) %>% 
   summarise(mean.prev = mean(draw_prev_per100k)) %>% 
   mutate(I_weekly = mean.prev / 100000 * n.ch,
-         country = "CH")
+         country = "CH") 
 
 I.tz <- prev.tz %>%
   group_by(draw) %>% 
   summarise(mean.prev = mean(draw_prev_per100k)) %>% 
   mutate(I_weekly = mean.prev / 100000 * n.tz,
-         country = "TZ")
+         country = "TZ") 
 
 I.results <- bind_rows(I.sa, I.ch, I.tz) %>% 
   group_by(country) %>% 

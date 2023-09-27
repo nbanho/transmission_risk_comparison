@@ -52,61 +52,57 @@ ifr <- tibble(country = c(rep("SA", 4), rep("CH", 4), rep("TZ", 4)),
 
 # excess mortality #
 
-simulate_excess <- function(country) {
+library(data.table)
+library(truncnorm)
+
+library(data.table)
+library(truncnorm)
+
+simulate_excess <- function(input_country) {
   
-  unique_periods <- unique(excess$period)
+  # Convert input_country to character
+  input_country <- as.character(input_country)
+  
+  # Convert to data.table for faster operations
+  setDT(excess)
+  setDT(ifr)
   
   # Function to draw from truncated normal
-  draw_from_truncnorm <- function(mean, sd) {
-    return(rtruncnorm(1, a=0, mean=mean, sd=sd))
+  draw_from_truncnorm <- function(mean, sd, n = 1) {
+    return(rtruncnorm(n, a=0, mean=mean, sd=sd))
   }
   
-  # Create an empty results dataframe
-  results <- data.frame(
-    draw_excess = numeric(0),
-    draw_ifr = numeric(0),
-    draw_prev_per100k = numeric(0),
-    period = character(0),
-    draw = integer(0)
-  )
+  # Filter once for the given country
+  excess_country <- excess[country == input_country]
+  ifr_country <- ifr[country == input_country]
+  
+  unique_periods <- unique(excess_country$period)
+  results_list <- vector("list", length(unique_periods))
   
   # Repeat process 3000 times
-  for(i in 1:3000) {
+  for(period1 in unique_periods) {
     
-    # Simulate for each period
-    for (period1 in unique_periods) {
-      
-      # Filtering both datasets for the given country and period
-      excess_filtered <- excess %>%
-        filter(country == !!country,
-               period == period1)
-      
-      ifr_filtered <- ifr %>%
-        filter(country == !!country,
-               period == period1)
-      
-      excess_mean <- excess_filtered$mean
-      excess_sd <- excess_filtered$sd
-      excess_draw <- draw_from_truncnorm(excess_mean, excess_sd)
-      
-      ifr_mean <- ifr_filtered$mean
-      ifr_sd <- ifr_filtered$sd
-      ifr_draw <- draw_from_truncnorm(ifr_mean, ifr_sd)
-      
-      # Compute the ratio and store, including the draw number
-      results <- rbind(results, data.frame(
-        draw_excess = excess_draw,
-        draw_ifr = ifr_draw,
-        draw_prev_per100k = pmin(excess_draw/ifr_draw, 100000),
-        period = period1,
-        draw = i
-      ) %>% 
-       dplyr:: select(draw, period, draw_excess, draw_ifr, draw_prev_per100k))
-    }
+    excess_filtered <- excess_country[period == period1]
+    ifr_filtered <- ifr_country[period == period1]
+    
+    excess_draws <- draw_from_truncnorm(excess_filtered$mean, excess_filtered$sd, n = 3000)
+    ifr_draws <- draw_from_truncnorm(ifr_filtered$mean, ifr_filtered$sd, n = 3000)
+    
+    results_list[[period1]] <- data.table(
+      draw = 1:3000,
+      period = period1,
+      draw_excess = excess_draws,
+      draw_ifr = ifr_draws,
+      draw_prev_per100k = pmin(excess_draws / ifr_draws, 100000)
+    )
   }
+  
+  # Combine results from all periods
+  results <- rbindlist(results_list)
   
   return(results)
 }
+
 
 #### Plotting ------------------------------------------------------------------
 

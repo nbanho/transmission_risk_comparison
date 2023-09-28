@@ -8,6 +8,7 @@ library(tidybayes)
 # for plotting
 library(wesanderson)
 source("utils/plotting.r")
+source("utils/settings.R")
 
 
 # for rounding so that the vector sums to 1
@@ -125,8 +126,6 @@ ERq <- function(pathogen = "SARS-CoV-2", n, pa = p_activ) {
 }
 
 #### Distribution ####
-
-n.sample <- 1e6
 
 #' Summaries by activity
 set.seed(1)

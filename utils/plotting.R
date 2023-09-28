@@ -41,37 +41,74 @@ theme_custom <- function() {
           legend.text = element_text(size = 8))
 }
 
-cm <- function(x) {
-  x / 2.54
+#### Risk plots ####
+
+plot_risk <- function(df) {
+  ggplot(mapping = aes(x = scenario, y = P, fill = country)) +
+    geom_errorbar(data = df %>% 
+                    dplyr::select(country, scenario, P) %>% 
+                    group_by(country, scenario) %>% 
+                    median_qi(),
+                  mapping = aes(ymin = .lower, ymax = .upper, color = country),
+                  position = position_dodge(width = .5),
+                  width = .3) +
+    geom_boxplot(data = df, 
+                 position = position_dodge(width = .5),
+                 outlier.shape = NA, coef = 0, width = 0.3) +
+    stat_summary(data = df,
+                 mapping = aes(x = scenario, y = P, color = country), geom = "point", fun = "median", 
+                 position = position_dodge2(width = .5), size = 2, shape = 23, fill = "white") +
+    scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
+                       limits = c(0,1), breaks = seq(0, 1, .2)^2) +
+    scale_x_discrete(labels = c("Low", "Medium", "High"), expand = expansion(add = c(.33, .33))) +
+    scale_color_manual(values = wes_palette("Moonrise2")) +
+    scale_fill_manual(values = wes_palette("Moonrise2")) +
+    labs(y = "Monthly risk of infection (%, square-root scale)", 
+         x = "Activity level in the classroom",
+         color = '',
+         fill = '') +
+    theme_custom() +
+    theme(legend.position = "top",
+          plot.title.position = "plot",
+          legend.box = "vertical") 
 }
 
-#### Results -------------------------------------------------------------------
 
-sens.df <- function(country_name) {
-  
-  # Validate input
-  if(!country_name %in% c("South Africa", "Switzerland", "Tanzania")) {
-    stop("Invalid country. Please choose one of 'South Africa', 'Switzerland', 'Tanzania'.")
-  }
-  
-  df <- tibble(country = rep(c("South Africa", "Switzerland", "Tanzania"), each = n.sample),
-               I = c(I.sa, I.ch, I.tz),
-               n = rep(c(n.sa, n.ch, n.tz), each = n.sample),
-               f = rep(c(f_bar.sa, f_bar.ch, f_bar.tz), each = n.sample),
-               f.sens = rep(c(f_bar.sens.sa, f_bar.sens.ch, f_bar.sens.tz), each = n.sample),
-               q = q.med,
-               t = year) %>%
-    mutate(P = case_when(
-      country == {{ country_name }} ~ 1 - exp(-f.sens*q*I*t/n),
-      TRUE ~ 1 - exp(-f*q*I*t/n)
-    ),
-    type = as.factor(case_when(
-      country == {{ country_name }} ~ "600ppm",
-      TRUE ~ "400ppm"
-    )),
-    sens = country_name)
-  
-  return(df)
+
+
+plot_risk.sens <- function(df) {
+  df %>% 
+    ggplot(mapping = aes(x = scenario, y = P, fill = country, shape = type)) +
+    geom_errorbar(data = df %>% 
+                    dplyr::select(country, scenario, P, type) %>% 
+                    group_by(country, scenario, type) %>% 
+                    median_qi(),
+                  mapping = aes(ymin = .lower, ymax = .upper, color = country),
+                  position = position_dodge(width = .5),
+                  width = .3) +
+    geom_boxplot(data = df, 
+                 position = position_dodge(width = .5),
+                 outlier.shape = NA, coef = 0, width = 0.3) +
+    stat_summary(data = df,
+                 mapping = aes(x = scenario, y = P, group = country), geom = "point", fun = "median", 
+                 position = position_dodge2(width = .5), size = 4, fill = "white", color = "black") +
+    scale_y_sqrt(labels = scales::percent_format(suffix = ""), expand = expansion(add = c(0, 0)), 
+                 limits = c(0,1), breaks = seq(0, 1, .2)^2) +
+    scale_x_discrete(labels = c(expression(C^o*"=600ppm in South Africa"), 
+                                expression(C^o*"=600ppm in Switzerland"), 
+                                expression(C^o*"=600ppm in Tanzania")), 
+                     expand = expansion(add = c(.33, .33))) +
+    scale_color_manual(values = wes_palette("Moonrise2")) +
+    scale_fill_manual(values = wes_palette("Moonrise2")) +
+    scale_shape_manual(values=c(23, 17), name = expression("Outdoor "*CO[2]*"-Level")) +  
+    labs(y = "Monthly risk of infection (%, square-root scale)", 
+         x = "",
+         color = '',
+         fill = '') +
+    theme_custom() +
+    theme(legend.position = "top",
+          plot.title.position = "plot",
+          legend.box = "vertical") 
 }
 
 

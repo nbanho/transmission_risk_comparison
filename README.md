@@ -8,7 +8,7 @@ The repository is structured as follows:
 
 -   *data-clean*: preprocessed data files
 
--   *data-raw*: raw data files (not yet public)
+-   *data-raw*: raw data files
 
 -   *preprocessing*: files to preprocess all data, i.e. environmental and epidemiological data
 
@@ -16,10 +16,12 @@ The repository is structured as follows:
 
 -   *utils*: additional, general code
 
-Preprocessed (clean) data files will be made available upon publication and allow reproducing all analyses.
-
 The relevant files regarding analysis are the following:
 
--   *analysis/sars.R* and *analysis/tb.R:* modeling transmission risk with a modified Wells-Riley equation, incorporating data and results from epidemiological and environmental analyses for SARS-CoV-2 and Mtb, respectively.
+-   *analysis/infection-risk-mtb.R* and *analysis/infection-risk-sars-cov-2.R:* modeling transmission risk with a modified Wells-Riley equation, incorporating data and results from epidemiological and environmental analyses for SARS-CoV-2 and Mtb, respectively.
 
--   utils/quanta.R: estimation of the quanta parameter
+-   *analysis/ventilation.R*: reporting of environmental data used in the analysis.
+
+-   utils/quanta.R: estimation of the quanta parameter.
+
+-   utils/settings.R: Parameters in the Wells-Riley equation which have been set to fixed values and are not modeled dynamically.

@@ -35,11 +35,10 @@ plot.co2 <- co2 %>%
 
 plot.co2
 
-ggsave(plot = plot.co2, 
-       filename = "results/co2-histogram.png", 
-       width = 16,
-       height = 8,
-       units = "cm")
+ggsave(filename = "results/co2-histogram.png", 
+       width = 16, height = 8, units = "cm")
+ggsave(filename = "results/co2-histogram.eps", 
+       width = 16, height = 8, units = "cm")
 
 #### Ventilation ####
 

@@ -44,7 +44,11 @@ main_pl <- plot_risk(main) +
 
 main_pl
 
-ggsave("results/infection-risk-mtb-main.png", width = 16, height = 10, units = "cm")  
+ggsave("results/infection-risk-mtb-main.png", 
+       width = 16, height = 10, units = "cm")
+ggsave("results/infection-risk-mtb-main.eps", 
+       width = 16, height = 10, units = "cm")
+
 
 main %>%
   group_by(country, scenario) %>%
@@ -87,7 +91,10 @@ outbreak_pl <- plot_risk(outbreak) +
 
 outbreak_pl
 
-ggsave("results/infection-risk-mtb-outbreak.png", width = 16, height = 10, units = "cm") 
+ggsave("results/infection-risk-mtb-outbreak.png", 
+       width = 16, height = 10, units = "cm") 
+ggsave("results/infection-risk-mtb-outbreak.eps", 
+      width = 16, height = 10, units = "cm") 
 
 outbreak %>%
   group_by(country, scenario) %>%
@@ -127,7 +134,10 @@ sens.reported_pl <- plot_risk(sens.reported) +
 
 sens.reported_pl
 
-ggsave("results/infection-risk-mtb-sensitivity_population.png", width = 12, height = 10, units = "cm")  
+ggsave("results/infection-risk-mtb-sensitivity_population.png", 
+       width = 12, height = 10, units = "cm")
+ggsave("results/infection-risk-mtb-sensitivity_population.eps", 
+       width = 12, height = 10, units = "cm")
 
 
 #### Sens: Outdoor CO2 ####
@@ -176,4 +186,7 @@ sens.Co_pl <- plot_risk.sens(sens.Co) +
 
 sens.Co_pl
 
-ggsave("results/infection-risk-mtb-sensitivity_outdoorCO2.png", width = 16, height = 11, units = "cm")  
+ggsave("results/infection-risk-mtb-sensitivity_outdoorCO2.png", 
+       width = 16, height = 11, units = "cm")  
+ggsave("results/infection-risk-mtb-sensitivity_outdoorCO2.eps", 
+       width = 16, height = 11, units = "cm")  

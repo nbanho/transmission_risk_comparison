@@ -43,7 +43,10 @@ main_pl <- plot_risk(main)
 
 main_pl
 
-ggsave("results/infection-risk-sars-cov-2-main.png", width = 16, height = 10, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-main.png", 
+       width = 16, height = 10, units = "cm")
+ggsave("results/infection-risk-sars-cov-2-main.eps", 
+       width = 16, height = 10, units = "cm")
 
 main %>%
   group_by(country, scenario) %>%
@@ -86,7 +89,10 @@ outbreak_pl <- plot_risk(outbreak) +
 
 outbreak_pl
 
-ggsave("results/infection-risk-sars-cov-2-outbreak.png", width = 16, height = 10, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-outbreak.png", 
+       width = 16, height = 10, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-outbreak.eps", 
+       width = 16, height = 10, units = "cm")  
 
 outbreak %>%
   group_by(country, scenario) %>%
@@ -132,7 +138,10 @@ sens.reported_pl <- plot_risk(sens.reported) +
 
 sens.reported_pl
 
-ggsave("results/infection-risk-sars-cov-2-sensitivity_reported.png", width = 16, height = 10, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-sensitivity_reported.png", 
+       width = 16, height = 10, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-sensitivity_reported.eps", 
+       width = 16, height = 10, units = "cm")  
   
 
 #### Sens: Outdoor CO2 ####
@@ -180,4 +189,7 @@ sens.Co_pl <- plot_risk.sens(sens.Co)
 
 sens.Co_pl
 
-ggsave("results/infection-risk-sars-cov-2-sensitivity_outdoorCO2.png", width = 16, height = 11, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-sensitivity_outdoorCO2.png", 
+       width = 16, height = 11, units = "cm")  
+ggsave("results/infection-risk-sars-cov-2-sensitivity_outdoorCO2.eps", 
+       width = 16, height = 11, units = "cm")  
